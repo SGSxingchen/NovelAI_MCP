@@ -173,7 +173,7 @@ function createServer() {
           sampler: 'k_euler_ancestral',
           qualityToggle: true,
           ucPreset: 0,
-          skip_cfg_above_sigma: 19,
+          skip_cfg_above_sigma: 58,
           prefer_brownian: true,
           image_format: 'png'
         };
