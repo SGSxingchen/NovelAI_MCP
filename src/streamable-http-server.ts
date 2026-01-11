@@ -136,11 +136,18 @@ function createServer() {
         let args = request.params.arguments as any;
 
         if (typeof args === 'string') {
-          try { args = JSON.parse(args); } catch (e) { throw new Error('JSON Parse Error'); }
+          try {
+            args = JSON.parse(args);
+          } catch (e) {
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            throw new Error(`Failed to parse arguments as JSON: ${errorMsg}`);
+          }
         }
 
         const actualPrompt = args.base_prompt || args.prompt || args.input;
-        if (!actualPrompt) throw new Error('Missing base_prompt');
+        if (!actualPrompt) {
+          throw new Error('Missing required parameter: base_prompt. Please provide a prompt describing the image to generate.');
+        }
 
         let charArray = [];
         if (Array.isArray(args.characters)) {
@@ -195,11 +202,14 @@ function createServer() {
               break;
             }
           }
-          if (!base64Image) throw new Error('No PNG found in ZIP');
+          if (!base64Image) {
+            throw new Error('No PNG file found in the ZIP archive returned by NovelAI API');
+          }
         } else if (isPng) {
           base64Image = imageBuffer.toString('base64');
         } else {
-          throw new Error('Unknown image format');
+          const magic = imageBuffer.slice(0, 4).toString('hex');
+          throw new Error(`Unexpected image format from NovelAI API. Magic bytes: ${magic}. Expected PNG or ZIP.`);
         }
 
         const cleanBase64 = base64Image.replace(/[\r\n]+/g, '');
@@ -230,8 +240,17 @@ function createServer() {
   return server;
 }
 
-// 存储活动的 transports
-const transports: Record<string, any> = {};
+// Session 管理
+interface SessionData {
+  transport: StreamableHTTPServerTransport;
+  server: Server;
+  lastActivity: number;
+}
+
+const sessions: Record<string, SessionData> = {};
+
+// Session 超时时间（30分钟）
+const SESSION_TIMEOUT = 30 * 60 * 1000;
 
 async function main() {
   const app = express();
@@ -258,32 +277,43 @@ async function main() {
     }
 
     try {
-      let transport: StreamableHTTPServerTransport;
+      let sessionData: SessionData | undefined;
 
-      if (sessionId && transports[sessionId]) {
-        // 使用现有 transport
-        transport = transports[sessionId];
+      if (sessionId && sessions[sessionId]) {
+        // 使用现有 session，更新活动时间
+        sessionData = sessions[sessionId];
+        sessionData.lastActivity = Date.now();
       } else if (!sessionId && isInitializeRequest(req.body)) {
         // 新的初始化请求
         console.log('🆕 Creating new session...');
 
-        transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (newSessionId) => {
-            console.log(`✅ Session initialized: ${newSessionId}`);
-            transports[newSessionId] = transport;
+        // 提前生成 sessionId 避免竞态条件
+        const newSessionId = randomUUID();
+
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => newSessionId,
+          onsessioninitialized: (sid) => {
+            console.log(`✅ Session initialized: ${sid}`);
           }
         });
 
+        const server = createServer();
+
+        // 立即存储 session 数据
+        sessions[newSessionId] = {
+          transport,
+          server,
+          lastActivity: Date.now()
+        };
+
         transport.onclose = () => {
           const sid = transport.sessionId;
-          if (sid && transports[sid]) {
+          if (sid && sessions[sid]) {
             console.log(`🔌 Transport closed for session ${sid}`);
-            delete transports[sid];
+            delete sessions[sid];
           }
         };
 
-        const server = createServer();
         await server.connect(transport);
         await transport.handleRequest(req, res, req.body);
         return;
@@ -299,7 +329,7 @@ async function main() {
         return;
       }
 
-      await transport.handleRequest(req, res, req.body);
+      await sessionData.transport.handleRequest(req, res, req.body);
     } catch (error) {
       console.error('💥 Error handling MCP request:', error);
       if (!res.headersSent) {
@@ -319,7 +349,7 @@ async function main() {
   app.get('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-    if (!sessionId || !transports[sessionId]) {
+    if (!sessionId || !sessions[sessionId]) {
       res.status(400).send('Invalid or missing session ID');
       return;
     }
@@ -331,15 +361,18 @@ async function main() {
       console.log(`📡 Establishing SSE stream for session ${sessionId}`);
     }
 
-    const transport = transports[sessionId];
-    await transport.handleRequest(req, res);
+    // 更新活动时间
+    const sessionData = sessions[sessionId];
+    sessionData.lastActivity = Date.now();
+
+    await sessionData.transport.handleRequest(req, res);
   });
 
   // DELETE /mcp - 关闭会话
   app.delete('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-    if (!sessionId || !transports[sessionId]) {
+    if (!sessionId || !sessions[sessionId]) {
       res.status(400).send('Invalid or missing session ID');
       return;
     }
@@ -347,8 +380,8 @@ async function main() {
     console.log(`🗑️  Received session termination request for ${sessionId}`);
 
     try {
-      const transport = transports[sessionId];
-      await transport.handleRequest(req, res);
+      const sessionData = sessions[sessionId];
+      await sessionData.transport.handleRequest(req, res);
     } catch (error) {
       console.error('Error handling session termination:', error);
       if (!res.headersSent) {
@@ -368,17 +401,45 @@ async function main() {
     console.log(`   DELETE /mcp  - Close session`);
   });
 
+  // 定期清理过期的 session（每5分钟检查一次）
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const sessionId in sessions) {
+      const sessionData = sessions[sessionId];
+      if (now - sessionData.lastActivity > SESSION_TIMEOUT) {
+        console.log(`🧹 Cleaning up expired session: ${sessionId}`);
+        try {
+          sessionData.transport.close();
+        } catch (error) {
+          console.error(`Error closing expired session ${sessionId}:`, error);
+        }
+        delete sessions[sessionId];
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`✅ Cleaned up ${cleanedCount} expired session(s)`);
+    }
+  }, 5 * 60 * 1000);
+
   // 优雅关闭
   process.on('SIGINT', async () => {
     console.log('\n🛑 Shutting down server...');
 
-    for (const sessionId in transports) {
+    // 停止清理定时器
+    clearInterval(cleanupInterval);
+
+    // 关闭所有 session
+    for (const sessionId in sessions) {
       try {
-        console.log(`Closing transport for session ${sessionId}`);
-        await transports[sessionId].close();
-        delete transports[sessionId];
+        console.log(`Closing session ${sessionId}`);
+        await sessions[sessionId].transport.close();
+        delete sessions[sessionId];
       } catch (error) {
-        console.error(`Error closing transport for session ${sessionId}:`, error);
+        console.error(`Error closing session ${sessionId}:`, error);
       }
     }
 
