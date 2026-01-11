@@ -1,0 +1,45 @@
+{
+  "name": "novelai-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for NovelAI image generation API with full support for latest models",
+  "type": "module",
+  "bin": {
+    "novelai-mcp-server": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "dev": "tsc --watch",
+    "start:stdio": "node dist/index.js",
+    "start:http": "node dist/streamable-http-server.js",
+    "start:sse": "node dist/http-server.js",
+    "dev:http": "tsc && npm run start:http",
+    "test:http": "node test-http-server.js"
+  },
+  "keywords": [
+    "mcp",
+    "novelai",
+    "image-generation",
+    "ai",
+    "nai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@msgpack/msgpack": "^3.1.3",
+    "adm-zip": "^0.5.16",
+    "https-proxy-agent": "^7.0.6",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.2"
+  }
+}

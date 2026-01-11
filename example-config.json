@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "novelai": {
+      "command": "npx",
+      "args": ["-y", "novelai-mcp-server"],
+      "env": {
+        "NOVELAI_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
