@@ -25,6 +25,14 @@ if (!API_KEY) {
 }
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// 显示代理配置
+if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
+  console.error('🔌 Proxy configured:', process.env.HTTPS_PROXY || process.env.HTTP_PROXY);
+} else {
+  console.error('⚠️  No proxy configured (set HTTPS_PROXY or HTTP_PROXY if needed)');
+}
+
 const client = new NovelAIClient(API_KEY);
 
 const GENERATE_IMAGE_TOOL: Tool = {

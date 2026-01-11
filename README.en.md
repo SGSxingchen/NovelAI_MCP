@@ -64,16 +64,24 @@ Add to Claude Desktop config:
 
 #### Option 2: Streamable HTTP Mode (LobeChat/Dify Recommended)
 
+**Linux/Mac:**
 ```bash
-# Set API Key
 export NOVELAI_API_KEY="your-api-key"
+export HTTPS_PROXY="http://127.0.0.1:7890"  # Optional: Set proxy
+npm run start:http
+```
 
-# Optional: Set proxy if needed
-export HTTPS_PROXY="http://proxy.example.com:8080"
-export HTTP_PROXY="http://proxy.example.com:8080"
+**Windows PowerShell:**
+```powershell
+$env:NOVELAI_API_KEY="your-api-key"
+$env:HTTPS_PROXY="http://127.0.0.1:7890"  # Optional: Set proxy
+npm run start:http
+```
 
-# Start server
-npm install
+**Windows CMD:**
+```cmd
+set NOVELAI_API_KEY=your-api-key
+set HTTPS_PROXY=http://127.0.0.1:7890
 npm run start:http
 ```
 
@@ -83,8 +91,24 @@ Configure in client:
 
 #### Option 3: SSE Mode (Alternative)
 
+**Linux/Mac:**
 ```bash
-# Start SSE server
+export NOVELAI_API_KEY="your-api-key"
+export HTTPS_PROXY="http://127.0.0.1:7890"  # Optional
+npm run start:sse
+```
+
+**Windows PowerShell:**
+```powershell
+$env:NOVELAI_API_KEY="your-api-key"
+$env:HTTPS_PROXY="http://127.0.0.1:7890"
+npm run start:sse
+```
+
+**Windows CMD:**
+```cmd
+set NOVELAI_API_KEY=your-api-key
+set HTTPS_PROXY=http://127.0.0.1:7890
 npm run start:sse
 ```
 
@@ -169,7 +193,6 @@ See [Quick Reference](./docs/QUICK-REFERENCE.md) for complete parameter list.
 
 ## 📚 Documentation
 
-- 📖 [HTTP Mode Guide](./docs/HTTP-MODE.md)
 - 🚀 [HTTP Quick Start](./docs/QUICKSTART-HTTP.md)
 - 🎨 [Usage Examples](./docs/EXAMPLES.md)
 - 🎭 [Multi-Character Feature](./docs/CHARACTER-EXAMPLES.md)

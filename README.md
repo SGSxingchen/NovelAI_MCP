@@ -17,14 +17,11 @@
 
 ## ✨ 特性
 
-- 🎨 **最新模型支持** - 完整支持 NAI Diffusion V4.5 Full 及所有历史版本
-- 🚀 **双传输模式** - Stdio（Claude Desktop）和 HTTP SSE（LobeChat/Dify）
+- 🎨 **最新模型支持** - 完整支持 NAI Diffusion V4.5 Full
+- 🚀 **双传输模式** - Stdio、HTTP SSE、Streamable HTTP
 - 🎭 **多角色支持** - V4+ 角色定位和独立提示词系统
-- ⚡ **高级采样** - 7 种采样器、4 种噪声调度、布朗噪声
-- 🎛️ **完整参数控制** - 所有 NovelAI API 参数均可配置
 - 📝 **中文优化** - 工具描述使用中文，AI 更准确识别调用时机
 - 🔧 **灵活部署** - 支持本地运行或 Docker 容器化
-- 📚 **文档完善** - 详细的使用示例和最佳实践
 
 ## 📦 快速开始
 
@@ -64,16 +61,24 @@ npm run build
 
 #### 方式二：Streamable HTTP 模式（LobeChat/Dify 推荐）
 
+**Linux/Mac:**
 ```bash
-# 设置 API Key
 export NOVELAI_API_KEY="your-api-key"
+export HTTPS_PROXY="http://127.0.0.1:7890"  # 可选：设置代理
+npm run start:http
+```
 
-# 可选：设置代理（如需要）
-export HTTPS_PROXY="http://proxy.example.com:8080"
-export HTTP_PROXY="http://proxy.example.com:8080"
+**Windows PowerShell:**
+```powershell
+$env:NOVELAI_API_KEY="your-api-key"
+$env:HTTPS_PROXY="http://127.0.0.1:7890"  # 可选：设置代理
+npm run start:http
+```
 
-# 启动服务器
-npm install
+**Windows CMD:**
+```cmd
+set NOVELAI_API_KEY=your-api-key
+set HTTPS_PROXY=http://127.0.0.1:7890
 npm run start:http
 ```
 
@@ -83,8 +88,24 @@ npm run start:http
 
 #### 方式三：SSE 模式（备选）
 
+**Linux/Mac:**
 ```bash
-# 启动 SSE 服务器
+export NOVELAI_API_KEY="your-api-key"
+export HTTPS_PROXY="http://127.0.0.1:7890"  # 可选
+npm run start:sse
+```
+
+**Windows PowerShell:**
+```powershell
+$env:NOVELAI_API_KEY="your-api-key"
+$env:HTTPS_PROXY="http://127.0.0.1:7890"
+npm run start:sse
+```
+
+**Windows CMD:**
+```cmd
+set NOVELAI_API_KEY=your-api-key
+set HTTPS_PROXY=http://127.0.0.1:7890
 npm run start:sse
 ```
 
@@ -100,39 +121,6 @@ npm run start:sse
 |------|------|
 | `nai-diffusion-4-5-full` | NAI Diffusion V4.5 Full（唯一支持的模型） |
 
-> **注意**: 本项目专门为 V4.5 Full 优化，包含完整的 V4.5 特性支持（Auto SMEA、Brownian 噪声、多角色定位等）。如需使用其他模型，请参考早期版本或提交 Issue。
-
-## 💡 使用示例
-
-### 基础文生图
-
-```typescript
-// AI 会自动调用工具，你只需要自然描述
-"帮我画一个蓝发动漫女孩，穿着校服，在樱花树下"
-```
-
-AI 会生成类似的参数：
-```json
-{
-  "base_prompt": "masterpiece, best quality, cherry blossoms, detailed",
-  "characters": [{
-    "prompt": "1girl, blue hair, school uniform, beautiful eyes",
-    "negative_prompt": "",
-    "center_x": 0.5,
-    "center_y": 0.5
-  }],
-  "width": 832,
-  "height": 1216
-}
-```
-
-### 多角色场景
-
-```typescript
-"画两个角色对话，左边是蓝发女孩坐着看书，右边是红发男孩站着"
-```
-
-更多示例请查看 [使用示例文档](./docs/EXAMPLES.md)。
 
 ## 🔧 核心参数
 
@@ -169,10 +157,7 @@ AI 会生成类似的参数：
 
 ## 📚 文档
 
-- 📖 [HTTP 模式详细指南](./docs/HTTP-MODE.md)
 - 🚀 [HTTP 快速开始](./docs/QUICKSTART-HTTP.md)
-- 🎨 [使用示例](./docs/EXAMPLES.md)
-- 🎭 [多角色功能](./docs/CHARACTER-EXAMPLES.md)
 - 📋 [快速参考卡片](./docs/QUICK-REFERENCE.md)
 - 📝 [完整功能总结](./SUMMARY.md)
 - 📜 [更新日志](./CHANGELOG.md)
@@ -245,7 +230,5 @@ docker run -d \
 <div align="center">
 
 **如果这个项目对你有帮助，请给个 ⭐️！**
-
-Made with ❤️ by the community
 
 </div>

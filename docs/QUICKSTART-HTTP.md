@@ -8,18 +8,30 @@
 npm install
 ```
 
-## 第二步：设置 API Key
+## 第二步：设置 API Key 和代理（可选）
 
+**Linux/Mac:**
 ```bash
-# Windows (PowerShell)
-$env:NOVELAI_API_KEY="your-api-key-here"
-
-# Windows (CMD)
-set NOVELAI_API_KEY=your-api-key-here
-
-# Linux/Mac
 export NOVELAI_API_KEY="your-api-key-here"
+export HTTPS_PROXY="http://127.0.0.1:7890"  # 可选：如果需要代理
 ```
+
+**Windows PowerShell:**
+```powershell
+$env:NOVELAI_API_KEY="your-api-key-here"
+$env:HTTPS_PROXY="http://127.0.0.1:7890"  # 可选：如果需要代理
+```
+
+**Windows CMD:**
+```cmd
+set NOVELAI_API_KEY=your-api-key-here
+set HTTPS_PROXY=http://127.0.0.1:7890
+```
+
+> **⚠️ 重要**:
+> - PowerShell 使用 `$env:变量名`
+> - CMD 使用 `set 变量名`
+> - 不要混淆！在 PowerShell 里用 `set` 是不生效的
 
 ## 第三步：启动服务器
 
