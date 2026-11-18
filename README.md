@@ -17,7 +17,7 @@
 
 ## ✨ 特性
 
-- 🎨 **最新模型支持** - 完整支持 NAI Diffusion V4.5 Full
+- 🎨 **最新模型支持** - 支持 NovelAI Diffusion V4.5 Full、V5 Full 和 V5 Curated
 - 🚀 **双传输模式** - Stdio、HTTP SSE、Streamable HTTP
 - 🎭 **多角色支持** - V4+ 角色定位和独立提示词系统
 - 📝 **中文优化** - 工具描述使用中文，AI 更准确识别调用时机
@@ -115,11 +115,12 @@ npm run start:sse
 
 ## 🎯 支持的模型
 
-当前版本专注于最新的 NovelAI V4.5 模型：
 
 | 模型 | 说明 |
 |------|------|
-| `nai-diffusion-4-5-full` | NAI Diffusion V4.5 Full（唯一支持的模型） |
+| `nai-diffusion-4-5-full` | NovelAI Diffusion V4.5 Full（默认） |
+| `nai-diffusion-5-full` | NovelAI Diffusion V5 Full（显式选择） |
+| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（显式选择） |
 
 
 ## 🔧 核心参数
@@ -130,7 +131,8 @@ npm run start:sse
 | `base_negative_prompt` | string | 全局负面提示词 |
 | `characters` | array | 角色数组（单人/多人都要用） |
 | `width` / `height` | number | 图片尺寸（必须是 64 的倍数） |
-| `steps` | number | 采样步数（锁定 28，免费限制） |
+| `model` | string | 可选。默认 V4.5 Full。V5 适用单独的额度规则，可能消耗 Anlas |
+| `steps` | number | 采样步数，省略时 V4.5 为 28，V5 为 23 |
 
 完整参数列表请查看 [快速参考](./docs/QUICK-REFERENCE.md)。
 
@@ -157,7 +159,7 @@ npm run start:sse
 
 ## Gemini 接入
 
-个人版 Gemini App（网页和手机）没有自定义 MCP 配置入口。若要用 Gemini 模型调用本项目，可通过支持 MCP 的客户端或 Gemini API 应用接入。已有 Gemini CLI 的用户可按[接入说明](./docs/GEMINI.md)配置。
+个人版 Gemini App（网页和手机）没有自定义 MCP 配置入口。若要用 Gemini 模型调用本项目，可通过支持 MCP 的客户端或 Gemini API 应用接入。普通用户可在 Google Antigravity 桌面端按[接入说明](./docs/GEMINI.md)配置。
 
 ## 📚 文档
 

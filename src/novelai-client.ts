@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { DEFAULT_MODEL } from './types.js';
 import type { 
   ImageGenerationParams, 
   CharacterPrompt,
@@ -64,15 +65,17 @@ export class NovelAIClient {
    * 生成图片
    */
   async generateImage(params: ImageGenerationParams): Promise<Buffer> {
+    const model = params.model ?? DEFAULT_MODEL;
+    const isV5 = model !== DEFAULT_MODEL;
     const {
       prompt,
-      model = 'nai-diffusion-4-5-full',
+      model: _model,
       action = 'generate',
       negative_prompt = '',
       width = 832,
       height = 1216,
-      steps = 28,
-      scale = 6,
+      steps = isV5 ? 23 : 28,
+      scale = isV5 ? 7 : 6,
       sampler = 'k_euler_ancestral',
       seed,
       n_samples = 1,
@@ -84,8 +87,8 @@ export class NovelAIClient {
       cfg_rescale = 0,
       qualityToggle = true,
       ucPreset = 0,
-      skip_cfg_above_sigma = 58,
-      prefer_brownian = true,
+      skip_cfg_above_sigma = isV5 ? null : 58,
+      prefer_brownian = !isV5,
       image_format = 'png',
       characterPrompts = [],
       add_original_image = true,
@@ -106,7 +109,7 @@ export class NovelAIClient {
       model,
       action,
       parameters: {
-        params_version: 3,
+        params_version: isV5 ? 4 : 3,
         width,
         height,
         scale,

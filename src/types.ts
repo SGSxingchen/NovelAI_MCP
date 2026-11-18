@@ -1,10 +1,18 @@
 /**
  * NovelAI API Types and Interfaces
- * Supporting latest models including NAI Diffusion V4.5 Full
+ * 支持 NovelAI Diffusion V4.5 Full 和 V5
  */
 
-// Only V4.5 Full is supported
-export type Model = 'nai-diffusion-4-5-full';
+export const DEFAULT_MODEL = 'nai-diffusion-4-5-full';
+export const IMAGE_MODELS = [DEFAULT_MODEL, 'nai-diffusion-5-full', 'nai-diffusion-5-curated'] as const;
+export type Model = (typeof IMAGE_MODELS)[number];
+
+export function resolveImageModel(value: unknown): Model {
+  if (value === undefined) return DEFAULT_MODEL;
+  const model = IMAGE_MODELS.find(candidate => candidate === value);
+  if (!model) throw new Error(`不支持该模型。可选模型：${IMAGE_MODELS.join('、')}`);
+  return model;
+}
 
 export type Action = 'generate' | 'img2img' | 'infill';
 
@@ -95,7 +103,7 @@ export interface ImageGenerationParams {
   ucPreset?: number;        // Negative prompt preset: 0-3
 
   // V4.5+ specific
-  skip_cfg_above_sigma?: number;  // Default: 58 for V4.5
+  skip_cfg_above_sigma?: number | null;  // Default: 58 for V4.5
   prefer_brownian?: boolean;      // Default: true for V4.5
   image_format?: ImageFormat;     // Output format
 
@@ -147,7 +155,7 @@ export interface NovelAIRequestPayload {
     cfg_rescale: number;
     noise_schedule: NoiseSchedule;
     legacy_v3_extend: boolean;
-    skip_cfg_above_sigma: number;
+    skip_cfg_above_sigma: number | null;
     use_coords: boolean;
     normalize_reference_strength_multiple: boolean;
     inpaintImg2ImgStrength: number;

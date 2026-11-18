@@ -13,6 +13,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import AdmZip from 'adm-zip';
 import { NovelAIClient } from './novelai-client.js';
+import { DEFAULT_MODEL, IMAGE_MODELS, resolveImageModel } from './types.js';
 import type { ImageGenerationParams, CharacterPrompt } from './types.js';
 
 const API_KEY = process.env.NOVELAI_API_KEY;
@@ -26,7 +27,7 @@ const client = new NovelAIClient(API_KEY);
 const server = new Server(
   {
     name: 'novelai-mcp-server',
-    version: '1.1.1',
+    version: '1.2.0',
   },
   {
     capabilities: {
@@ -37,7 +38,7 @@ const server = new Server(
 
 const GENERATE_IMAGE_TOOL: Tool = {
   name: 'generate_image',
-  description: `使用 NovelAI V4.5 Full 模型生成图片的工具。
+  description: `使用 NovelAI 生成图片。默认 V4.5 Full，可显式选择 V5 Full 或 V5 Curated。
 
 何时调用此工具：
 - 用户要求「画」「生成」「创建」「制作」图片/图像时
@@ -97,10 +98,15 @@ const GENERATE_IMAGE_TOOL: Tool = {
         default: 1216,
         description: '图片高度（像素），必须是 64 的倍数，范围 64-1536。常用值：1216（竖图/人物肖像）、832（横图/风景）、1024（方图）'
       },
+      model: {
+        type: 'string',
+        enum: [...IMAGE_MODELS],
+        default: DEFAULT_MODEL,
+        description: '可按用户要求指定模型。V5 使用单独的额度规则，可能消耗 Anlas。'
+      },
       steps: {
         type: 'number',
-        default: 28,
-        description: '采样步数，锁定为 28（NovelAI 免费出图的最大步数，超过 28 会收费）。不要修改此参数。'
+        description: '采样步数。省略时 V4.5 使用 28 步，V5 使用 23 步。'
       }
     },
     required: ['base_prompt'],
@@ -151,16 +157,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         characterPrompts: characterPrompts,
         width: args.width || 832,
         height: args.height || 1216,
-        steps: args.steps || 28,
+        steps: args.steps || undefined,
         seed: Math.floor(Math.random() * 4294967295),
-        model: 'nai-diffusion-4-5-full',
+        model: resolveImageModel(args.model),
         action: 'generate',
-        scale: 6,
         sampler: 'k_euler_ancestral',
         qualityToggle: true,
         ucPreset: 0,
-        skip_cfg_above_sigma: 58,
-        prefer_brownian: true,
         image_format: 'png'
       };
 

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.0（2026-11-18）
+
+- 可按请求选用 NovelAI Diffusion V5 Full 或 V5 Curated。现有调用省略模型时继续使用 V4.5 Full。
+- 更新 Google Antigravity 接入步骤。
+
 ## 1.1.1（2026-11-18）
 
 - 更新 MCP SDK、ZIP 处理和 HTTP 依赖，提交依赖锁文件，使本地与容器构建可复现。
