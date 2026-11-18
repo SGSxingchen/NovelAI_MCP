@@ -3,8 +3,8 @@
  * 支持 NovelAI Diffusion V4.5 Full 和 V5
  */
 
-export const DEFAULT_MODEL = 'nai-diffusion-4-5-full';
-export const IMAGE_MODELS = [DEFAULT_MODEL, 'nai-diffusion-5-full', 'nai-diffusion-5-curated'] as const;
+export const DEFAULT_MODEL = 'nai-diffusion-5-curated';
+export const IMAGE_MODELS = ['nai-diffusion-4-5-full', 'nai-diffusion-5-full', DEFAULT_MODEL] as const;
 export type Model = (typeof IMAGE_MODELS)[number];
 
 export function resolveImageModel(value: unknown): Model {

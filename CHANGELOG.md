@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.1（2026-11-18）
+
+- 工具和底层客户端默认使用 V5 Curated，保留对 V5 Full 和 V4.5 Full 的显式选择。
+- 按 Google 官方说明修正 Gemini 网页和手机 App 的 Cloud MCP 接入步骤。
+
 ## 1.2.0（2026-11-18）
 
 - 可按请求选用 NovelAI Diffusion V5 Full 或 V5 Curated。现有调用省略模型时继续使用 V4.5 Full。

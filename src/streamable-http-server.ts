@@ -28,6 +28,7 @@ if (!API_KEY) {
 }
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const HOST = process.env.MCP_BIND_HOST || '::';
 
 // 显示代理配置
 if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
@@ -41,7 +42,7 @@ const client = new NovelAIClient(API_KEY);
 // 工具定义
 const GENERATE_IMAGE_TOOL: Tool = {
   name: 'generate_image',
-  description: `使用 NovelAI 生成图片。默认 V4.5 Full，可显式选择 V5 Full 或 V5 Curated。
+  description: `使用 NovelAI 生成图片。默认 V5 Curated，可显式选择 V5 Full 或 V4.5 Full。
 
 何时调用此工具：
 - 用户要求「画」「生成」「创建」「制作」图片/图像时
@@ -121,7 +122,7 @@ function createServer() {
   const server = new Server(
     {
       name: 'novelai-mcp-server',
-      version: '1.2.0',
+      version: '1.2.1',
     },
     {
       capabilities: {
@@ -393,7 +394,7 @@ async function main() {
     }
   });
 
-  app.listen(PORT, () => {
+  app.listen(PORT, HOST, () => {
     console.log(`🚀 NovelAI MCP Server (Streamable HTTP mode) running on http://localhost:${PORT}`);
     console.log(`📡 MCP endpoint: http://localhost:${PORT}/mcp`);
     console.log(`❤️  Health check: http://localhost:${PORT}/health`);

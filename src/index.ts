@@ -27,7 +27,7 @@ const client = new NovelAIClient(API_KEY);
 const server = new Server(
   {
     name: 'novelai-mcp-server',
-    version: '1.2.0',
+    version: '1.2.1',
   },
   {
     capabilities: {
@@ -38,7 +38,7 @@ const server = new Server(
 
 const GENERATE_IMAGE_TOOL: Tool = {
   name: 'generate_image',
-  description: `使用 NovelAI 生成图片。默认 V4.5 Full，可显式选择 V5 Full 或 V5 Curated。
+  description: `使用 NovelAI 生成图片。默认 V5 Curated，可显式选择 V5 Full 或 V4.5 Full。
 
 何时调用此工具：
 - 用户要求「画」「生成」「创建」「制作」图片/图像时

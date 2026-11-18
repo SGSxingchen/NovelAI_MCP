@@ -118,9 +118,9 @@ npm run start:sse
 
 | 模型 | 说明 |
 |------|------|
-| `nai-diffusion-4-5-full` | NovelAI Diffusion V4.5 Full（默认） |
+| `nai-diffusion-4-5-full` | NovelAI Diffusion V4.5 Full（显式选择） |
 | `nai-diffusion-5-full` | NovelAI Diffusion V5 Full（显式选择） |
-| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（显式选择） |
+| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（默认） |
 
 
 ## 🔧 核心参数
@@ -131,7 +131,7 @@ npm run start:sse
 | `base_negative_prompt` | string | 全局负面提示词 |
 | `characters` | array | 角色数组（单人/多人都要用） |
 | `width` / `height` | number | 图片尺寸（必须是 64 的倍数） |
-| `model` | string | 可选。默认 V4.5 Full。V5 适用单独的额度规则，可能消耗 Anlas |
+| `model` | string | 可选。默认 V5 Curated。V5 适用单独的额度规则，可能消耗 Anlas |
 | `steps` | number | 采样步数，省略时 V4.5 为 28，V5 为 23 |
 
 完整参数列表请查看 [快速参考](./docs/QUICK-REFERENCE.md)。
@@ -154,12 +154,13 @@ npm run start:sse
 |------|------|--------|------|
 | `NOVELAI_API_KEY` | ✅ | - | NovelAI API 密钥 |
 | `PORT` | ❌ | 3000 | HTTP 服务器端口（仅 HTTP 模式） |
+| `MCP_BIND_HOST` | 否 | `::` | Streamable HTTP 监听地址。通过本机 Nginx 提供 HTTPS 时可设为 `127.0.0.1` |
 | `HTTPS_PROXY` | ❌ | - | HTTPS 代理地址 |
 | `HTTP_PROXY` | ❌ | - | HTTP 代理地址 |
 
 ## Gemini 接入
 
-个人版 Gemini App（网页和手机）没有自定义 MCP 配置入口。若要用 Gemini 模型调用本项目，可通过支持 MCP 的客户端或 Gemini API 应用接入。普通用户可在 Google Antigravity 桌面端按[接入说明](./docs/GEMINI.md)配置。
+Gemini 网页的「关联的应用 → 自定义 → Cloud MCP」可以连接公网 HTTPS 的 Streamable HTTP 入口。连接后可在 Gemini 网页和手机 App 使用。见 [接入说明](./docs/GEMINI.md)。
 
 ## 📚 文档
 

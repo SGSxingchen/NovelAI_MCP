@@ -66,7 +66,7 @@ export class NovelAIClient {
    */
   async generateImage(params: ImageGenerationParams): Promise<Buffer> {
     const model = params.model ?? DEFAULT_MODEL;
-    const isV5 = model !== DEFAULT_MODEL;
+    const isV5 = model === 'nai-diffusion-5-full' || model === 'nai-diffusion-5-curated';
     const {
       prompt,
       model: _model,
