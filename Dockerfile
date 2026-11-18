@@ -4,16 +4,11 @@ FROM node:20-alpine
 WORKDIR /app
 
 # 复制 package 文件
-COPY package*.json ./
+COPY package.json package-lock.json tsconfig.json ./
+COPY src ./src
 
-# 安装依赖
-RUN npm ci --only=production
-
-# 复制源代码
-COPY . .
-
-# 编译 TypeScript
-RUN npm run build
+# 安装锁定的依赖，运行 prepare 编译后移除开发依赖
+RUN npm ci && npm prune --omit=dev --ignore-scripts
 
 # 暴露端口
 EXPOSE 3000

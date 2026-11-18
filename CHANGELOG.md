@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.1（2026-11-18）
+
+- 更新 MCP SDK、ZIP 处理和 HTTP 依赖，提交依赖锁文件，使本地与容器构建可复现。
+- 修复旧版 SSE 模式下工具请求没有转发到对应会话的问题。
+- 补充 Gemini 接入方式。
+
 ## [1.1.0] - 2026-01-11
 
 ### Added

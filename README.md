@@ -33,7 +33,7 @@ git clone https://github.com/SGSxingchen/NovelAI_MCP.git
 cd NovelAI_MCP
 
 # 安装依赖
-npm install
+npm ci
 
 # 编译
 npm run build
@@ -155,6 +155,10 @@ npm run start:sse
 | `HTTPS_PROXY` | ❌ | - | HTTPS 代理地址 |
 | `HTTP_PROXY` | ❌ | - | HTTP 代理地址 |
 
+## Gemini 接入
+
+个人版 Gemini App（网页和手机）没有自定义 MCP 配置入口。若要用 Gemini 模型调用本项目，可通过支持 MCP 的客户端或 Gemini API 应用接入。已有 Gemini CLI 的用户可按[接入说明](./docs/GEMINI.md)配置。
+
 ## 📚 文档
 
 - 🚀 [HTTP 快速开始](./docs/QUICKSTART-HTTP.md)
@@ -170,7 +174,7 @@ git clone https://github.com/SGSxingchen/NovelAI_MCP.git
 cd NovelAI_MCP
 
 # 安装依赖
-npm install
+npm ci
 
 # 编译
 npm run build

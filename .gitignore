@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Build output
 dist/
@@ -9,6 +8,7 @@ dist/
 .env
 .env.local
 .env.*.local
+ecosystem.config.cjs
 
 # Logs
 *.log

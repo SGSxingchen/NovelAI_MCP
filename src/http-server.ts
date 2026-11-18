@@ -111,7 +111,7 @@ function createServer() {
   const server = new Server(
     {
       name: 'novelai-mcp-server',
-      version: '1.0.3',
+      version: '1.1.1',
     },
     {
       capabilities: {
@@ -232,6 +232,7 @@ function createServer() {
 
 async function main() {
   const app = express();
+  const sessions = new Map<string, SSEServerTransport>();
 
   // 启用 CORS
   app.use(cors({
@@ -254,19 +255,26 @@ async function main() {
     const server = createServer();
     const transport = new SSEServerTransport('/message', res);
 
-    await server.connect(transport);
-
-    // 当连接关闭时清理
-    req.on('close', () => {
-      console.log('🔌 SSE connection closed');
-    });
+    transport.onclose = () => {
+      sessions.delete(transport.sessionId);
+    };
+    sessions.set(transport.sessionId, transport);
+    try {
+      await server.connect(transport);
+    } catch (error) {
+      sessions.delete(transport.sessionId);
+      throw error;
+    }
   });
 
-  // 消息端点（用于接收客户端消息）
   app.post('/message', async (req, res) => {
-    console.log('📨 Received message');
-    // SSE transport 会处理这个请求
-    res.status(200).send();
+    const sessionId = req.query.sessionId;
+    const transport = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined;
+    if (!transport) {
+      res.status(404).send('Invalid or missing session ID');
+      return;
+    }
+    await transport.handlePostMessage(req, res, req.body);
   });
 
   app.listen(PORT, () => {
