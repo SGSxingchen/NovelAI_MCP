@@ -117,7 +117,7 @@ function createServer() {
   const server = new Server(
     {
       name: 'novelai-mcp-server',
-      version: '1.2.2',
+      version: '1.2.3',
     },
     {
       capabilities: {

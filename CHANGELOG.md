@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.3（2026-11-18）
+
+- 图片与图库元数据持久化归档，下载链接可跨服务重启使用。
+- 保存失败时仍返回已生成的原生 PNG，并提示本次未生成下载链接。
+
 ## 1.2.2（2026-11-18）
 
 - Streamable HTTP 可同时返回原生 PNG 和用于 Gemini 文本回执的短期图片链接。

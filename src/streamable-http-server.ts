@@ -8,7 +8,9 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -17,6 +19,7 @@ import {
 import express from 'express';
 import cors from 'cors';
 import AdmZip from 'adm-zip';
+import { saveImage } from './image-archive.js';
 import { NovelAIClient } from './novelai-client.js';
 import { DEFAULT_MODEL, IMAGE_MODELS, resolveImageModel } from './types.js';
 import type { ImageGenerationParams, CharacterPrompt } from './types.js';
@@ -37,27 +40,9 @@ if (imageOrigin && (imageOrigin.protocol !== 'https:' || imageOrigin.href !== im
 }
 
 const IMAGE_PATH = '/novelai-images/';
-const IMAGE_TTL_MS = 60 * 60 * 1000;
-const MAX_CACHED_IMAGE_BYTES = 64 * 1024 * 1024;
-const images = new Map<string, { png: Buffer; expiresAt: number }>();
-let cachedImageBytes = 0;
-
-function removeImage(id: string) {
-  const image = images.get(id);
-  if (image && images.delete(id)) cachedImageBytes -= image.png.length;
-}
-
-function cacheImage(png: Buffer): string | undefined {
-  if (!imageOrigin || png.length > MAX_CACHED_IMAGE_BYTES) return undefined;
-  for (const id of images.keys()) {
-    if (cachedImageBytes + png.length <= MAX_CACHED_IMAGE_BYTES) break;
-    removeImage(id);
-  }
-  const id = randomBytes(32).toString('base64url');
-  images.set(id, { png, expiresAt: Date.now() + IMAGE_TTL_MS });
-  cachedImageBytes += png.length;
-  return new URL(`${IMAGE_PATH}${id}.png`, imageOrigin).href;
-}
+const archiveDir = process.env.MCP_IMAGE_ARCHIVE_DIR || imageOrigin
+  ? resolve(process.env.MCP_IMAGE_ARCHIVE_DIR || 'outputs')
+  : undefined;
 
 // 显示代理配置
 if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
@@ -155,7 +140,7 @@ function createServer() {
   const server = new Server(
     {
       name: 'novelai-mcp-server',
-      version: '1.2.2',
+      version: '1.2.3',
     },
     {
       capabilities: {
@@ -248,16 +233,25 @@ function createServer() {
           data: png.toString('base64'),
           mimeType: 'image/png',
         };
-        const imageUrl = cacheImage(png);
-        const content = imageUrl
-          ? [
-              {
-                type: 'text' as const,
-                text: `NovelAI 已生成图片。请向用户展示图片，并保留可打开的链接：[查看或下载图片](${imageUrl})`,
-              },
-              image,
-            ]
-          : [image];
+        const content: Array<typeof image | { type: 'text'; text: string }> = [image];
+        if (archiveDir) {
+          try {
+            const id = await saveImage(archiveDir, png, apiParams);
+            if (imageOrigin) {
+              const imageUrl = new URL(`${IMAGE_PATH}${id}.png`, imageOrigin).href;
+              content.unshift({
+                type: 'text',
+                text: `NovelAI 已生成并保存图片。[查看或下载图片](${imageUrl})`,
+              });
+            }
+          } catch (error) {
+            console.error('❌ [Streamable HTTP] 图片归档写入失败:', error);
+            content.unshift({
+              type: 'text',
+              text: 'NovelAI 已生成图片，服务器保存失败，本次没有下载链接。原始 PNG 已随该回执返回，请勿为同一结果自动重新出图。',
+            });
+          }
+        }
         console.log('✅ [Streamable HTTP] 已收到并返回 NovelAI PNG');
         return { content };
 
@@ -290,6 +284,7 @@ const sessions: Record<string, SessionData> = {};
 const SESSION_TIMEOUT = 30 * 60 * 1000;
 
 async function main() {
+  if (archiveDir) await mkdir(archiveDir, { recursive: true, mode: 0o700 });
   const app = express();
 
   app.use(cors({
@@ -306,20 +301,29 @@ async function main() {
   });
 
   // 图片链接独立于 MCP 会话，可在浏览器打开
-  if (imageOrigin) {
-    app.get(`${IMAGE_PATH}:filename`, (req, res) => {
+  if (imageOrigin && archiveDir) {
+    app.get(`${IMAGE_PATH}:filename`, (req, res, next) => {
       const match = /^([A-Za-z0-9_-]{43})\.png$/.exec(req.params.filename);
-      const id = match?.[1];
-      const image = id && images.get(id);
       res.set('Cache-Control', 'private, no-store');
-      if (!image || image.expiresAt <= Date.now()) {
-        if (id) removeImage(id);
+      if (!match) {
         res.sendStatus(404);
         return;
       }
       res.set('Referrer-Policy', 'no-referrer');
       res.set('X-Content-Type-Options', 'nosniff');
-      res.type('png').send(image.png);
+      res.type('png').sendFile(`${match[1]}/image.png`, { root: archiveDir, cacheControl: false }, error => {
+        if (!error) return;
+        if (res.headersSent) {
+          next(error);
+          return;
+        }
+        if ('status' in error && error.status === 404) {
+          res.sendStatus(404);
+          return;
+        }
+        console.error('❌ [Streamable HTTP] 图片读取失败:', 'code' in error ? error.code : error.name);
+        res.sendStatus(500);
+      });
     });
   }
 
@@ -473,10 +477,6 @@ async function main() {
         delete sessions[sessionId];
         cleanedCount++;
       }
-    }
-
-    for (const [id, image] of images) {
-      if (image.expiresAt <= Date.now()) removeImage(id);
     }
 
     if (cleanedCount > 0) {

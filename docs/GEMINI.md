@@ -14,8 +14,12 @@
 
 ## 图片回执
 
-公网部署的工具回执同时包含原生 PNG 和「查看或下载图片」的文本链接。Gemini 若没有内嵌图片，可以打开回执中的链接。链接最长有效一小时。服务重启或图片缓存满时，较早的链接可能提前失效。链接应按图片访问凭据保管。
+公网部署的工具回执同时包含原生 PNG 和「查看或下载图片」的文本链接。Gemini 若没有内嵌图片，可以打开回执中的链接。归档链接没有有效期，服务重启后仍可使用。链接应按图片访问凭据保管。
 
-自建部署可将 `MCP_IMAGE_PUBLIC_ORIGIN` 设为公网 HTTPS 域名，并将该域名的 `/novelai-images/` 原路径代理到 Streamable HTTP 服务。只需开放 GET 和 HEAD。未配置此变量时，服务继续只返回原生 PNG。
+自建部署可将 `MCP_IMAGE_PUBLIC_ORIGIN` 设为公网 HTTPS 域名，将该域名的 `/novelai-images/` 原路径代理到 Streamable HTTP 服务。开放 GET 和 HEAD 即可。使用 `MCP_IMAGE_ARCHIVE_DIR` 指定持久化卷或目录。仅设置归档目录时会保存 PNG，工具回执继续返回原生图片。
+
+## 图库读取格式
+
+归档根目录下，每张图片对应一个随机 ID 目录，包含 `image.png` 与 `metadata.json`。元数据版本为 `schema_version: 1`，包含图片 ID、UTC 生成时间、模型、宽高、随机种子、媒体类型和字节数。忽略以点开头的未提交目录。图库可从服务器文件系统按需读取。公网无需目录索引，只有持有对应图片链接的访问方可以下载该图。归档由运维管理，无自动到期删除。
 
 [Google 工具回执优化说明](https://developers.google.com/connected-apps/mcp/server-optimization)
