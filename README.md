@@ -155,6 +155,7 @@ npm run start:sse
 | `NOVELAI_API_KEY` | ✅ | - | NovelAI API 密钥 |
 | `PORT` | ❌ | 3000 | HTTP 服务器端口（仅 HTTP 模式） |
 | `MCP_BIND_HOST` | 否 | `::` | Streamable HTTP 监听地址。通过本机 Nginx 提供 HTTPS 时可设为 `127.0.0.1` |
+| `MCP_IMAGE_PUBLIC_ORIGIN` | 否 | — | Streamable HTTP 图片链接使用的 HTTPS 域名。启用时须反代 `/novelai-images/` |
 | `HTTPS_PROXY` | ❌ | - | HTTPS 代理地址 |
 | `HTTP_PROXY` | ❌ | - | HTTP 代理地址 |
 

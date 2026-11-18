@@ -27,7 +27,7 @@ const client = new NovelAIClient(API_KEY);
 const server = new Server(
   {
     name: 'novelai-mcp-server',
-    version: '1.2.1',
+    version: '1.2.2',
   },
   {
     capabilities: {

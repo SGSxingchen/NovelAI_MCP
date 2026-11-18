@@ -8,7 +8,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -29,6 +29,35 @@ if (!API_KEY) {
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.MCP_BIND_HOST || '::';
+const imageOrigin = process.env.MCP_IMAGE_PUBLIC_ORIGIN
+  ? new URL(process.env.MCP_IMAGE_PUBLIC_ORIGIN)
+  : undefined;
+if (imageOrigin && (imageOrigin.protocol !== 'https:' || imageOrigin.href !== imageOrigin.origin + '/')) {
+  throw new Error('MCP_IMAGE_PUBLIC_ORIGIN 必须是无路径的 HTTPS 域名');
+}
+
+const IMAGE_PATH = '/novelai-images/';
+const IMAGE_TTL_MS = 60 * 60 * 1000;
+const MAX_CACHED_IMAGE_BYTES = 64 * 1024 * 1024;
+const images = new Map<string, { png: Buffer; expiresAt: number }>();
+let cachedImageBytes = 0;
+
+function removeImage(id: string) {
+  const image = images.get(id);
+  if (image && images.delete(id)) cachedImageBytes -= image.png.length;
+}
+
+function cacheImage(png: Buffer): string | undefined {
+  if (!imageOrigin || png.length > MAX_CACHED_IMAGE_BYTES) return undefined;
+  for (const id of images.keys()) {
+    if (cachedImageBytes + png.length <= MAX_CACHED_IMAGE_BYTES) break;
+    removeImage(id);
+  }
+  const id = randomBytes(32).toString('base64url');
+  images.set(id, { png, expiresAt: Date.now() + IMAGE_TTL_MS });
+  cachedImageBytes += png.length;
+  return new URL(`${IMAGE_PATH}${id}.png`, imageOrigin).href;
+}
 
 // 显示代理配置
 if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
@@ -40,6 +69,10 @@ if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
 const client = new NovelAIClient(API_KEY);
 
 // 工具定义
+const imageLinkInstruction = imageOrigin
+  ? '\n- 如果结果提供图片链接，请把链接完整展示给用户。优先嵌入图片，同时保留可点击的链接。'
+  : '';
+
 const GENERATE_IMAGE_TOOL: Tool = {
   name: 'generate_image',
   description: `使用 NovelAI 生成图片。默认 V5 Curated，可显式选择 V5 Full 或 V4.5 Full。
@@ -54,7 +87,7 @@ const GENERATE_IMAGE_TOOL: Tool = {
 - 当用户请求图片时，立即调用此工具，不要犹豫
 - 不要向用户展示 JSON 参数，直接执行工具调用
 - 此工具支持所有类型图片：动漫、写实、风景、人物、场景等
-- 单人场景和多人场景都必须使用 characters 数组来定义角色`,
+- 单人场景和多人场景都必须使用 characters 数组来定义角色${imageLinkInstruction}`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -122,7 +155,7 @@ function createServer() {
   const server = new Server(
     {
       name: 'novelai-mcp-server',
-      version: '1.2.1',
+      version: '1.2.2',
     },
     {
       capabilities: {
@@ -195,38 +228,38 @@ function createServer() {
         const isZip = imageBuffer[0] === 0x50 && imageBuffer[1] === 0x4B;
         const isPng = imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50;
 
-        let base64Image = '';
-
+        let png: Buffer;
         if (isZip) {
           const zip = new AdmZip(imageBuffer);
-          const zipEntries = zip.getEntries();
-          for (const entry of zipEntries) {
-            if (entry.entryName.endsWith('.png')) {
-              base64Image = entry.getData().toString('base64');
-              break;
-            }
-          }
-          if (!base64Image) {
+          const entry = zip.getEntries().find(item => !item.isDirectory && item.entryName.endsWith('.png'));
+          if (!entry) {
             throw new Error('No PNG file found in the ZIP archive returned by NovelAI API');
           }
+          png = entry.getData();
         } else if (isPng) {
-          base64Image = imageBuffer.toString('base64');
+          png = imageBuffer;
         } else {
           const magic = imageBuffer.slice(0, 4).toString('hex');
           throw new Error(`Unexpected image format from NovelAI API. Magic bytes: ${magic}. Expected PNG or ZIP.`);
         }
 
-        const cleanBase64 = base64Image.replace(/[\r\n]+/g, '');
-
-        return {
-          content: [
-            {
-              type: 'image',
-              data: cleanBase64,
-              mimeType: 'image/png'
-            }
-          ]
+        const image = {
+          type: 'image' as const,
+          data: png.toString('base64'),
+          mimeType: 'image/png',
         };
+        const imageUrl = cacheImage(png);
+        const content = imageUrl
+          ? [
+              {
+                type: 'text' as const,
+                text: `NovelAI 已生成图片。请向用户展示图片，并保留可打开的链接：[查看或下载图片](${imageUrl})`,
+              },
+              image,
+            ]
+          : [image];
+        console.log('✅ [Streamable HTTP] 已收到并返回 NovelAI PNG');
+        return { content };
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -271,6 +304,24 @@ async function main() {
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'novelai-mcp-server', mode: 'streamable-http' });
   });
+
+  // 图片链接独立于 MCP 会话，可在浏览器打开
+  if (imageOrigin) {
+    app.get(`${IMAGE_PATH}:filename`, (req, res) => {
+      const match = /^([A-Za-z0-9_-]{43})\.png$/.exec(req.params.filename);
+      const id = match?.[1];
+      const image = id && images.get(id);
+      res.set('Cache-Control', 'private, no-store');
+      if (!image || image.expiresAt <= Date.now()) {
+        if (id) removeImage(id);
+        res.sendStatus(404);
+        return;
+      }
+      res.set('Referrer-Policy', 'no-referrer');
+      res.set('X-Content-Type-Options', 'nosniff');
+      res.type('png').send(image.png);
+    });
+  }
 
   // POST /mcp - 处理 MCP 请求
   app.post('/mcp', async (req, res) => {
@@ -422,6 +473,10 @@ async function main() {
         delete sessions[sessionId];
         cleanedCount++;
       }
+    }
+
+    for (const [id, image] of images) {
+      if (image.expiresAt <= Date.now()) removeImage(id);
     }
 
     if (cleanedCount > 0) {

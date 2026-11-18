@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.2（2026-11-18）
+
+- Streamable HTTP 可同时返回原生 PNG 和用于 Gemini 文本回执的短期图片链接。
+- 图片缓存仅存于内存，最多 64 MiB，有效期一小时。
+
 ## 1.2.1（2026-11-18）
 
 - 工具和底层客户端默认使用 V5 Curated，保留对 V5 Full 和 V4.5 Full 的显式选择。

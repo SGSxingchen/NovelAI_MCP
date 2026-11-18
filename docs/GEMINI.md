@@ -11,3 +11,11 @@
 自行部署时，将带访问保护的公网 HTTPS 入口反代到服务的 `/mcp`，并关闭反代缓冲以支持 Streamable HTTP。专用访问链接应按访问凭据保管。支持 MCP 的其他客户端也可以使用 Streamable HTTP 接入。
 
 [Google 开发者接入文档](https://developers.google.com/connected-apps/mcp)
+
+## 图片回执
+
+公网部署的工具回执同时包含原生 PNG 和「查看或下载图片」的文本链接。Gemini 若没有内嵌图片，可以打开回执中的链接。链接最长有效一小时。服务重启或图片缓存满时，较早的链接可能提前失效。链接应按图片访问凭据保管。
+
+自建部署可将 `MCP_IMAGE_PUBLIC_ORIGIN` 设为公网 HTTPS 域名，并将该域名的 `/novelai-images/` 原路径代理到 Streamable HTTP 服务。只需开放 GET 和 HEAD。未配置此变量时，服务继续只返回原生 PNG。
+
+[Google 工具回执优化说明](https://developers.google.com/connected-apps/mcp/server-optimization)
