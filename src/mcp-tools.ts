@@ -33,6 +33,7 @@ const UPSCALE_MAX_PIXELS = 1048576;
 const MAX_REFERENCE_BYTES = 40 * 1024 * 1024;
 const IMAGE_INPUT = '接受归档 ID、本站归档图片链接、公网 HTTPS 图片链接、图像 Base64 或图像数据 URI。仅标准输入输出模式支持本地文件。';
 const IMAGE_RECEIPT = '展示结果中的「查看或下载图片」公网链接，每张图都保留对应链接。';
+const COST_POLICY = '计费红线：Opus 订阅下 V3/V4/V4.5 满足总像素 ≤1,048,576（如 832×1216、1216×832、1024×1024）、steps ≤28、n_samples = 1 且未附加收费参考时为免费（0 Anlas）；超像素、超过 28 步、多图或非 Opus 订阅（Paper/Tablet/Scroll）会按规格扣 Anlas。V5 系列优先消耗独立 V5 额度条，额度条耗尽（isNegative）或超规格时转扣 Anlas。除非用户明确要求，优先保持免费规格（≤1,048,576 像素、≤28 步、单张）。';
 
 const bounded = (type: 'number' | 'integer', description: string, minimum: number, maximum: number) => (
   { type, description, minimum, maximum }
@@ -62,10 +63,10 @@ const generationFields = {
       required: ['prompt'],
     },
   },
-  model: { ...choice('出图模型。默认 V5 Curated。V5 的额度与 Anlas 按账号计费。', IMAGE_MODELS), default: DEFAULT_MODEL },
-  steps: bounded('integer', '采样步数，由模型决定默认值。V5 Full Medium 固定为 14。', 1, 50),
+  model: { ...choice('出图模型。默认 V5 Curated。V3/V4/V4.5 在 Opus 下满足 ≤1,048,576 像素、≤28 步、单张免费；V5 优先消耗独立 V5 额度条，耗尽后扣 Anlas；非 Opus 订阅按规格扣 Anlas。', IMAGE_MODELS), default: DEFAULT_MODEL },
+  steps: bounded('integer', '采样步数（1-50），由模型决定默认值（V4.5 默认 28，V5 默认 23，V5 Full Medium 固定 14）。Opus 免费上限为 28 步，超过 28 步开始扣 Anlas。', 1, 50),
   seed: bounded('integer', '随机种子，省略或传非正数时随机生成。', Number.MIN_SAFE_INTEGER, MAX_SEED),
-  n_samples: bounded('integer', '出图数量，1 至 8 张。多张可能增加 Anlas 消耗。', 1, 8),
+  n_samples: bounded('integer', '出图数量（1-8 张）。Opus 仅 1 张在免费范围内，大于 1 张开始扣 Anlas。', 1, 8),
   scale: bounded('number', '提示词引导强度，范围 0 至 10。', 0, 10),
   cfg_rescale: unit('引导强度重缩放，V5 Full Medium 固定为 0。'),
   sampler: choice('采样器，默认 k_euler_ancestral。局部重绘会自动改用兼容采样器。', SAMPLERS),
@@ -84,7 +85,7 @@ const generationFields = {
   uncond_scale: bounded('number', '负面提示词强度，范围 0 至 1.5。', 0, 1.5),
   legacy_uc: flag('使用旧版负面提示词处理。V4 默认开启。'),
   character_references: {
-    type: 'array', description: 'V4.5 精确参考，与 vibe_references 互斥。参考图可能增加 Anlas 消耗。',
+    type: 'array', description: 'V4.5 精确参考，与 vibe_references 互斥。必扣 Anlas（即使 Opus 订阅，每张参考图每张成图额外约 +5 Anlas）。',
     items: {
       type: 'object',
       properties: {
@@ -98,7 +99,7 @@ const generationFields = {
   },
   vibe_references: {
     type: 'array', maxItems: MAX_VIBE_REFERENCES,
-    description: '最多 16 张风格参考，V5 与 V4.5 局部重绘不可用。V4 系列首次编码可能消耗 Anlas。',
+    description: '最多 16 张风格参考，V5 与 V4.5 局部重绘不可用。V4/V4.5 首次编码约扣 2 Anlas，复用已缓存 vibe_id 不重复扣编码费；V3 无需编码。',
     items: {
       type: 'object',
       properties: {
@@ -137,18 +138,18 @@ function tool(
 }
 
 const TOOLS = [
-  tool('generate_image', `按提示词画图，默认使用 V5 Curated。按模型、尺寸、步数和图片张数可能消耗额度或 Anlas。${IMAGE_RECEIPT}`, {
+  tool('generate_image', `按提示词画图，默认使用 V5 Curated。${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...generationFields,
-    width: { ...dimension('图片宽度（像素），对齐到 64 的倍数，默认 832。'), default: 832 },
-    height: { ...dimension('图片高度（像素），对齐到 64 的倍数，默认 1216。'), default: 1216 },
+    width: { ...dimension('图片宽度（像素），对齐到 64 的倍数，默认 832。Opus 免费上限为 width × height ≤ 1,048,576（如 832×1216、1216×832、1024×1024）。'), default: 832 },
+    height: { ...dimension('图片高度（像素），对齐到 64 的倍数，默认 1216。Opus 免费上限为 width × height ≤ 1,048,576。'), default: 1216 },
   }, ['base_prompt']),
-  tool('img2img', `用提示词重绘源图，strength 越大改动越多。可能消耗额度或 Anlas。${IMAGE_RECEIPT}`, {
+  tool('img2img', `用提示词重绘源图，strength 越大改动越多。${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
     strength: unit('去噪强度，默认 0.7。'),
     color_correct: flag('校正颜色以贴近原图，默认开启。'),
     extra_noise_seed: bounded('integer', '额外噪声种子，默认沿用出图种子。', 1, MAX_SEED),
   }, ['base_prompt', 'source_image']),
-  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。V5 Curated 自动回退到 V4.5 Curated。可能消耗额度或 Anlas。${IMAGE_RECEIPT}`, {
+  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。V5 Curated 自动回退到 V4.5 Curated。${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
     mask_image: textField(`黑色保留，白色重绘。与 mask_regions 同时提供时使用此遮罩。${IMAGE_INPUT}`),
     mask_regions: {
@@ -168,7 +169,7 @@ const TOOLS = [
     inpaint_strength: unit('遮罩内重绘强度，默认 1。低于 1 时在遮罩内按指定强度重绘。'),
     add_original_image: flag('用原图合成遮罩外的区域，默认开启。'),
   }, ['base_prompt', 'source_image']),
-  tool('augment_image', `对源图抽线稿、转素描、着色、清理画面、改变表情、移除背景或调整像素。移除背景返回三张图，调用可能消耗 Anlas。${IMAGE_RECEIPT}`, {
+  tool('augment_image', `对源图抽线稿、转素描、着色、清理画面、改变表情、移除背景或调整像素。计费说明：pixel-snap 免费；bg-removal（移除背景，返回 3 张图）必扣 Anlas（即使 Opus 也收费）；其余模式在 Opus 订阅且 ≤1,048,576 像素内免费，超像素或非 Opus 扣 Anlas。${IMAGE_RECEIPT}`, {
     source_image: textField(IMAGE_INPUT),
     req_type: choice('图像处理方式。', AUGMENT_REQ_TYPES),
     emotion: choice('表情名称，req_type 为 emotion 时必须提供。', EMOTION_MOODS),
@@ -177,13 +178,13 @@ const TOOLS = [
     width: dimension('处理宽度（像素），默认沿用源图。'),
     height: dimension('处理高度（像素），默认沿用源图。'),
   }, ['source_image', 'req_type']),
-  tool('upscale_image', `放大现有图片。默认把超过 1,048,576 像素的输入等比缩小到上游允许的范围。可能消耗 Anlas。${IMAGE_RECEIPT}`, {
+  tool('upscale_image', `4 倍超分辨率放大现有图片。计费说明：必扣 Anlas（即使 Opus 订阅，按面积约消耗 1-4 Anlas）。默认把超过 1,048,576 像素的输入等比缩小到上游允许的范围。${IMAGE_RECEIPT}`, {
     source_image: textField(IMAGE_INPUT),
     model: { ...textField('放大使用的上游模型标识。'), default: DEFAULT_UPSCALE_MODEL },
     declared_blur_sigma: { type: 'number', minimum: 0, description: '显式声明的源图模糊程度。' },
     auto_fit_1mp: { ...flag('自动把超过 1,048,576 像素的图片等比缩小，默认开启。'), default: true },
   }, ['source_image']),
-  tool('encode_vibe', '为 V4 或 V4.5 编码风格参考。新编码可能消耗 Anlas。把返回的 vibe_id 放入同一模型的 vibe_references，即可复用。', {
+  tool('encode_vibe', '为 V4 或 V4.5 编码风格参考。计费说明：首次编码必扣 Anlas（即使 Opus 订阅，约 2 Anlas/次）；复用本服务缓存的 vibe_id 免费，不再重复扣编码费。把返回的 vibe_id 放入同一模型的 vibe_references 即可复用。', {
     source_image: textField(IMAGE_INPUT),
     model: { ...choice('需要与之后出图使用的模型相同，默认 V4.5 Full。', ENCODE_VIBE_MODELS), default: 'nai-diffusion-4-5-full' },
     information_extracted: { ...unit('提取比例，默认 1。'), default: 1 },
@@ -191,14 +192,14 @@ const TOOLS = [
     crop_to_mask: flag('编码时裁剪到遮罩区域。启用时需提供 mask_image。'),
     include_raw_base64: { ...flag('同时返回原始 Base64 编码，默认只返回可复用 ID。'), default: false },
   }, ['source_image']),
-  tool('suggest_tags', '按当前提示词查询可用标签，辅助编写 NovelAI 图像提示词。返回标签 JSON。', {
+  tool('suggest_tags', '免费只读查询（0 Anlas）：按当前提示词查询可用标签，辅助编写 NovelAI 图像提示词。返回标签 JSON。', {
     prompt: { ...textField('需要补全的提示词片段。'), minLength: 1 },
     model: generationFields.model,
     lang: { ...choice('标签语言，默认 en。', ['en', 'jp']), default: 'en' },
     limit: { ...bounded('integer', '最多返回的标签数，默认 20。', 1, 100), default: 20 },
   }, ['prompt'], true),
-  tool('get_subscription', '查看当前 NovelAI 订阅、到期时间、固定及购买的 Anlas 余额和 V5 额度使用情况。', {}, [], true),
-  tool('list_archived_images', `查询归档图片。指定 image_id 时返回单图元数据与 PNG 内嵌参数，否则按时间倒序列出最近归档。${IMAGE_RECEIPT}`, {
+  tool('get_subscription', '免费只读查询（0 Anlas）：查看当前 NovelAI 订阅档位（是否 Opus）、到期时间、固定及购买的 Anlas 余额和 V5 额度条状态。调用前不确定是否会扣点时可先查此工具。', {}, [], true),
+  tool('list_archived_images', `免费只读查询（0 Anlas）：查询归档图片。指定 image_id 时返回单图元数据与 PNG 内嵌参数，否则按时间倒序列出最近归档。${IMAGE_RECEIPT}`, {
     image_id: textField('归档回执中的 43 位 image_id，或本站的完整图片链接。'),
     limit: { ...bounded('integer', '返回最近几张图，默认 10，最多 50。', 1, 50), default: 10 },
   }, [], true, false),
