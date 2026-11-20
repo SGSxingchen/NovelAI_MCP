@@ -282,6 +282,8 @@ export interface NovelAIMcpServerOptions {
   allowLocalFiles?: boolean;
   transportLabel?: string;
   vibeCache?: VibeCache;
+  linkContext?: { id: string; label: string };
+  onToolCompleted?: (event: { tool: string; anlasSpent?: number }) => void;
 }
 
 function normalizeLegacyGenerateArguments(args: Record<string, unknown>): void {
@@ -413,7 +415,7 @@ function summarizeUsageCost(
 }
 
 export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server {
-  const { client, archiveDir, imageOrigin, transportLabel = 'MCP' } = options;
+  const { client, archiveDir, imageOrigin, transportLabel = 'MCP', linkContext, onToolCompleted } = options;
   const vibeCache = options.vibeCache ?? new VibeCache(archiveDir);
   const readImage = (input: string) => resolveImageInput(input, options);
 
@@ -430,6 +432,17 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     } catch {
       return undefined;
     }
+  }
+
+  function completed(tool: string, result: CallToolResult, usage?: UsageCostSummary): CallToolResult {
+    if (!result.isError && onToolCompleted) {
+      try {
+        onToolCompleted(usage ? { tool, anlasSpent: usage.totalSpent } : { tool });
+      } catch {
+        console.error(`[${transportLabel}] 更新工具使用统计失败`, tool);
+      }
+    }
+    return result;
   }
 
   async function receipt(
@@ -453,6 +466,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         height: dimensions?.height ?? meta.height,
         seed: outputSeed ?? meta.seed,
         ...(usage ? { anlas_spent: usage.perImage } : {}),
+        ...(linkContext ? { link_id: linkContext.id, link_label: linkContext.label } : {}),
       };
       const parts = [`图 ${index + 1}`];
       if (metadata.model) parts.push(`模型 ${metadata.model}`);
@@ -478,7 +492,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     if (usage) lines.push(usage.line);
     if (meta.note) lines.push(meta.note);
     if (vibeIds.length > 0) lines.push(`可复用的 vibe_id：${[...new Set(vibeIds)].join('、')}。`);
-    return { content: [asText(lines.join('\n')), ...content] };
+    return completed(meta.tool, { content: [asText(lines.join('\n')), ...content] }, usage);
   }
 
   async function encodeReference(
@@ -643,11 +657,11 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       mask, args.crop_to_mask);
     const afterSub = beforeSub ? await captureSubscription() : undefined;
     const usage = summarizeUsageCost(beforeSub, afterSub, 1);
-    return asJson({
+    return completed('encode_vibe', asJson({
       vibe_id: cached.id, model: cached.model, information_extracted: cached.information_extracted,
       ...(args.include_raw_base64 ? { encoded_vibe: cached.encoded_vibe } : {}),
       ...(usage ? { anlas_spent: usage.totalSpent, remaining_anlas: usage.remainingTotal } : {}),
-    });
+    }), usage);
   }
 
   async function archive(args: { image_id?: string; limit?: number }): Promise<CallToolResult> {
@@ -705,7 +719,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         case 'suggest_tags': {
           const input = args as unknown as SuggestTagsParams & { limit?: number };
           const { tags } = await client.suggestTags({ prompt: input.prompt, model: input.model, lang: input.lang });
-          return asJson({ tags: tags.slice(0, input.limit ?? 20) });
+          return completed(name, asJson({ tags: tags.slice(0, input.limit ?? 20) }));
         }
         case 'get_subscription': {
           const { summary } = await client.getSubscription();
@@ -717,13 +731,13 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
               ? `V5 额度信息 ${JSON.stringify(summary.v5Usage)}`
               : '当前订阅未提供 V5 额度使用数据。',
           ];
-          return { content: [asText(lines.join('\n')), asText(JSON.stringify(summary))] };
+          return completed(name, { content: [asText(lines.join('\n')), asText(JSON.stringify(summary))] });
         }
         case 'list_archived_images':
-          return await archive(args);
+          return completed(name, await archive(args));
         case 'get_v5_stylist_guide': {
           const input = args as { topic?: V5StylistTopic; blueprint?: V5StyleBlueprintId };
-          return { content: [asText(renderV5StylistGuide(input))] };
+          return completed(name, { content: [asText(renderV5StylistGuide(input))] });
         }
         default:
           throw new Error('未知工具');

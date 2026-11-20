@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NovelAI 创作画廊与 MCP 分发台</title>
+  <meta name="color-scheme" content="light dark">
+  <script>
+    try {
+      const saved = localStorage.getItem('color-scheme');
+      if (saved === 'light' || saved === 'dark') {
+        document.querySelector('meta[name="color-scheme"]').content = saved;
+      }
+    } catch {}
+  </script>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- 登录门禁 -->
+  <main id="loginView" class="login-shell" hidden>
+    <section class="login-card" aria-labelledby="loginHeading">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
+          <rect x="3" y="3" width="26" height="26" rx="8" stroke="currentColor" stroke-width="2"/>
+          <path d="M9 21.5L14.2 14.8L18.4 19.2L21.4 15.5L24 21.5H9Z" fill="currentColor" opacity="0.88"/>
+          <circle cx="12" cy="11" r="2.2" fill="currentColor"/>
+        </svg>
+      </div>
+      <h1 id="loginHeading" class="login-title">NovelAI 画廊与分发台</h1>
+      <p class="login-subtitle">输入管理口令以查看归档作品、管理 MCP 分发链接与监控点数消耗。</p>
+      <form id="loginForm" class="login-form" novalidate>
+        <label class="field">
+          <span class="field-label">管理口令</span>
+          <input
+            id="passwordInput"
+            name="password"
+            type="password"
+            class="input"
+            autocomplete="current-password"
+            placeholder="请输入管理员口令"
+            required
+          >
+        </label>
+        <p id="loginError" class="form-error" role="alert" hidden></p>
+        <button id="loginSubmit" type="submit" class="btn btn-primary btn-block">进入工作台</button>
+      </form>
+    </section>
+  </main>
+
+  <!-- 主工作台 -->
+  <div id="appView" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-brand">
+          <span class="brand-dot" aria-hidden="true"></span>
+          <div>
+            <h1 class="app-title">NovelAI 创作画廊</h1>
+            <p class="app-subtitle">MCP 归档资产与链接分发中心</p>
+          </div>
+        </div>
+
+        <nav class="tab-bar" role="tablist" aria-label="主功能切换">
+          <button
+            id="tabGallery"
+            type="button"
+            role="tab"
+            class="tab-btn"
+            aria-selected="true"
+            aria-controls="panelGallery"
+            data-tab="gallery"
+          >画廊图库</button>
+          <button
+            id="tabLinks"
+            type="button"
+            role="tab"
+            class="tab-btn"
+            aria-selected="false"
+            aria-controls="panelLinks"
+            data-tab="links"
+          >MCP 链接分发</button>
+        </nav>
+
+        <div class="topbar-actions">
+          <button id="themeToggleBtn" type="button" class="icon-btn" aria-label="切换明暗主题" title="切换明暗主题">
+            <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+              <circle cx="12" cy="12" r="4"/>
+              <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56"/>
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>
+            </svg>
+          </button>
+          <button id="logoutBtn" type="button" class="btn btn-ghost btn-sm">退出登录</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-wrap">
+      <!-- 顶部概览指标带 -->
+      <section class="stats-strip" aria-label="运行概览">
+        <article class="stat-card">
+          <span class="stat-label">归档作品</span>
+          <div class="stat-value-row">
+            <strong id="statImageCount" class="stat-value">—</strong>
+            <span id="statImageSize" class="stat-meta">计算中…</span>
+          </div>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">活跃分发链接</span>
+          <div class="stat-value-row">
+            <strong id="statLinkActive" class="stat-value">—</strong>
+            <span id="statLinkCalls" class="stat-meta">累计调用 —</span>
+          </div>
+        </article>
+        <article class="stat-card stat-card-wide">
+          <div class="stat-head-row">
+            <span class="stat-label">NovelAI 账号与点数</span>
+            <button id="refreshSubBtn" type="button" class="btn-inline" title="实时刷新余额">刷新</button>
+          </div>
+          <div class="stat-value-row">
+            <strong id="statAnlas" class="stat-value">—</strong>
+            <span id="statSubMeta" class="stat-meta">点击刷新或自动加载…</span>
+          </div>
+        </article>
+      </section>
+
+      <!-- 画廊图库面板 -->
+      <section id="panelGallery" class="panel" role="tabpanel" aria-labelledby="tabGallery">
+        <div class="toolbar-container">
+          <div class="toolbar">
+            <div class="search-wrap">
+              <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="7"/>
+                <path d="m20 20-3.5-3.5"/>
+              </svg>
+              <input
+                id="searchInput"
+                type="search"
+                class="input search-input"
+                placeholder="搜提示词、种子号、模型或归档编号…"
+                aria-label="搜索图库"
+              >
+            </div>
+
+            <div class="filter-group">
+              <select id="filterLink" class="select" aria-label="按来源链接筛选">
+                <option value="">全部来源</option>
+              </select>
+              <select id="filterModel" class="select" aria-label="按模型筛选">
+                <option value="">全部模型</option>
+              </select>
+              <select id="filterSort" class="select" aria-label="排序方式">
+                <option value="newest">最新优先</option>
+                <option value="oldest">最早优先</option>
+              </select>
+              <button id="refreshGalleryBtn" type="button" class="btn btn-secondary btn-sm">刷新</button>
+            </div>
+          </div>
+          <p class="toolbar-hint">单击作品查看高清大图与完整提示词；桌面端可在空白处按住左键拖框批量勾选，或点右上角勾选框。</p>
+        </div>
+
+        <div id="galleryStage" class="gallery-stage">
+          <div id="marqueeBox" class="marquee-box" hidden aria-hidden="true"></div>
+          <div id="galleryGrid" class="gallery-grid" aria-live="polite"></div>
+
+          <div id="galleryEmpty" class="empty-state" hidden>
+            <p class="empty-title">暂无匹配的归档作品</p>
+            <p class="empty-desc">尝试清空筛选条件，或通过已分发的 MCP 链接生成新作品。</p>
+          </div>
+
+          <div id="galleryFooter" class="gallery-footer" hidden>
+            <button id="loadMoreBtn" type="button" class="btn btn-secondary">加载更多作品</button>
+            <span id="galleryProgress" class="progress-text"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- MCP 链接分发面板 -->
+      <section id="panelLinks" class="panel" role="tabpanel" aria-labelledby="tabLinks" hidden>
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">MCP 分发链接</h2>
+            <p class="section-desc">为不同设备、客户端或家人朋友签发独立链接；停用或轮换密钥后会立刻断开对应活跃会话，互不影响。</p>
+          </div>
+          <button id="openCreateLinkBtn" type="button" class="btn btn-primary">+ 新建分发链接</button>
+        </div>
+
+        <div id="linksList" class="links-list" aria-live="polite"></div>
+
+        <div id="linksEmpty" class="empty-state" hidden>
+          <p class="empty-title">还没有分发链接</p>
+          <p class="empty-desc">点击右上角「新建分发链接」，生成一条专属的可流式 HTTP MCP 地址。</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部批量操作悬浮条 -->
+    <div id="batchBar" class="batch-bar" hidden role="region" aria-label="批量操作">
+      <div class="batch-bar-inner">
+        <span id="batchCountText" class="batch-count">已选 0 项</span>
+        <div class="batch-actions">
+          <button id="batchSelectAllBtn" type="button" class="btn btn-ghost btn-sm">全选当前已加载</button>
+          <button id="batchCopyLinksBtn" type="button" class="btn btn-secondary btn-sm">复制公开链接</button>
+          <button id="batchDeleteBtn" type="button" class="btn btn-danger btn-sm">批量删除</button>
+          <button id="batchClearBtn" type="button" class="btn btn-ghost btn-sm">取消选择</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图片详情灯箱 -->
+  <dialog id="lightboxDialog" class="modal modal-lightbox" closedby="any" aria-labelledby="lightboxTitle">
+    <div class="lightbox-shell">
+      <div class="lightbox-media">
+        <button id="lightboxPrevBtn" type="button" class="lightbox-nav lightbox-prev" aria-label="上一张" title="上一张 (←)">‹</button>
+        <img id="lightboxImg" class="lightbox-img" alt="作品高清预览">
+        <button id="lightboxNextBtn" type="button" class="lightbox-nav lightbox-next" aria-label="下一张" title="下一张 (→)">›</button>
+      </div>
+      <aside class="lightbox-aside">
+        <div class="modal-sticky-head">
+          <h2 id="lightboxTitle" class="modal-title">作品详情</h2>
+          <button type="button" class="icon-btn" data-close-dialog="lightboxDialog" aria-label="关闭详情">✕</button>
+        </div>
+        <div id="lightboxBody" class="lightbox-body"></div>
+      </aside>
+    </div>
+  </dialog>
+
+  <!-- 新建分发链接弹窗 -->
+  <dialog id="createLinkDialog" class="modal modal-sm" closedby="any" aria-labelledby="createLinkTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="createLinkTitle" class="modal-title">新建 MCP 分发链接</h2>
+        <button type="button" class="icon-btn" data-close-dialog="createLinkDialog" aria-label="关闭弹窗">✕</button>
+      </div>
+      <form id="createLinkForm" class="modal-form">
+        <label class="field">
+          <span class="field-label">备注名称</span>
+          <input
+            id="newLinkLabel"
+            type="text"
+            class="input"
+            maxlength="60"
+            placeholder="例如：对象 Cherry Studio、iPad Gemini"
+            required
+          >
+        </label>
+        <label class="field">
+          <span class="field-label">有效期</span>
+          <select id="newLinkExpiry" class="select">
+            <option value="">永久有效（手动停用为止）</option>
+            <option value="24">24 小时后自动失效</option>
+            <option value="168">7 天后自动失效</option>
+            <option value="720">30 天后自动失效</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-close-dialog="createLinkDialog">取消</button>
+          <button id="createLinkSubmit" type="submit" class="btn btn-primary">签发链接</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- 接入指南与链接展示弹窗 -->
+  <dialog id="guideDialog" class="modal modal-md" closedby="any" aria-labelledby="guideTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="guideTitle" class="modal-title">客户端接入指引</h2>
+        <button type="button" class="icon-btn" data-close-dialog="guideDialog" aria-label="关闭弹窗">✕</button>
+      </div>
+      <div id="guideBody" class="guide-body"></div>
+    </div>
+  </dialog>
+
+  <!-- 通用确认弹窗（删除 / 轮换密钥） -->
+  <dialog id="confirmDialog" class="modal modal-sm" closedby="any" aria-labelledby="confirmTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="confirmTitle" class="modal-title">确认操作</h2>
+        <button type="button" class="icon-btn" data-close-dialog="confirmDialog" aria-label="取消">✕</button>
+      </div>
+      <p id="confirmMessage" class="confirm-message"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-dialog="confirmDialog">取消</button>
+        <button id="confirmOkBtn" type="button" class="btn btn-danger">确认</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

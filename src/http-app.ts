@@ -8,21 +8,32 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { AdminAuth } from './admin-auth.js';
+import { registerAdminRoutes } from './admin-routes.js';
 import { IMAGE_PATH, loadArchivedImage } from './image-archive.js';
+import { LinkStore, parseBootstrapLinks } from './link-store.js';
+import type { McpLinkRecord } from './link-store.js';
 import { createNovelAIMcpServer, SERVER_NAME, SERVER_VERSION, TOOL_COUNT } from './mcp-tools.js';
 import type { NovelAIMcpServerOptions } from './mcp-tools.js';
 import { getRuntimeOptions, onShutdown, parseOrigin } from './runtime.js';
 import { VibeCache } from './vibe-cache.js';
 
 type HttpMode = 'streamable-http' | 'sse';
-type AppOptions = Pick<NovelAIMcpServerOptions, 'client' | 'archiveDir' | 'imageOrigin' | 'vibeCache'> & {
+export type AppOptions = Pick<NovelAIMcpServerOptions, 'client' | 'archiveDir' | 'imageOrigin' | 'vibeCache'> & {
   allowedOrigins?: readonly string[];
   bindHost?: string;
+  publicOrigin?: URL;
+  linkStore?: LinkStore;
+  adminAuth?: AdminAuth;
+  adminEnabled?: boolean;
+  adminPassword?: string;
 };
 
 const SESSION_TIMEOUT = 30 * 60 * 1_000;
 const IMAGE_FILENAME = /^([A-Za-z0-9_-]{43})\.(png|webp|jpg)$/;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+const LINK_MCP_PATH = '/novelai/:token/mcp';
+const parseMcpBody = express.json({ limit: '50mb' });
 
 function rpcError(res: Response, status: number, code: number, message: string) {
   res.status(status).json({ jsonrpc: '2.0', error: { code, message }, id: null });
@@ -47,9 +58,11 @@ const handleHttpError: ErrorRequestHandler = (error, _req, res, _next) => {
 
 function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
   const app = express();
+  app.set('trust proxy', 1);
   const allowedOrigins = new Set(options.allowedOrigins);
   const allowAnyOrigin = allowedOrigins.has('*');
   if (options.imageOrigin) allowedOrigins.add(options.imageOrigin.origin);
+  if (options.publicOrigin) allowedOrigins.add(options.publicOrigin.origin);
   app.use(paths, (req, res, next) => {
     const origin = req.get('Origin');
     if (origin === undefined || allowAnyOrigin) {
@@ -73,7 +86,6 @@ function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
     allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id', 'MCP-Protocol-Version', 'Last-Event-ID'],
     exposedHeaders: ['Mcp-Session-Id', 'MCP-Protocol-Version'],
   }));
-  app.use(express.json({ limit: '50mb' }));
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: SERVER_NAME, mode, version: SERVER_VERSION, tools: TOOL_COUNT });
@@ -108,8 +120,8 @@ function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
   }
 
   const vibeCache = options.vibeCache ?? new VibeCache(archiveDir);
-  const createServerForSession = () => createNovelAIMcpServer({
-    client, archiveDir, imageOrigin, vibeCache, transportLabel: mode, allowLocalFiles: false,
+  const createServerForSession = (linkOptions?: Pick<NovelAIMcpServerOptions, 'linkContext' | 'onToolCompleted'>) => createNovelAIMcpServer({
+    client, archiveDir, imageOrigin, vibeCache, transportLabel: mode, allowLocalFiles: false, ...linkOptions,
   });
   return { app, createServerForSession };
 }
@@ -123,8 +135,10 @@ async function closeTransport(transport: Transport): Promise<void> {
 }
 
 export function createStreamableHttpApp(options: AppOptions) {
-  const { app, createServerForSession } = createHttpApp('streamable-http', options, ['/mcp']);
-  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; lastActivity: number }>();
+  const { app, createServerForSession } = createHttpApp('streamable-http', options, ['/mcp', LINK_MCP_PATH]);
+  const { archiveDir, client, imageOrigin, publicOrigin = imageOrigin } = options;
+  const linkStore = options.linkStore ?? new LinkStore(archiveDir);
+  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; lastActivity: number; linkId?: string }>();
   let closing = false;
 
   async function removeSession(id: string) {
@@ -135,12 +149,20 @@ export function createStreamableHttpApp(options: AppOptions) {
     }
   }
 
-  async function forward(req: Request, res: Response) {
+  async function revokeLinkSessions(linkId: string): Promise<void> {
+    const pending: Array<Promise<void>> = [];
+    for (const [id, session] of sessions) {
+      if (session.linkId === linkId) pending.push(removeSession(id));
+    }
+    await Promise.all(pending);
+  }
+
+  async function forward(req: Request, res: Response, link?: McpLinkRecord) {
     const sessionId = req.get('Mcp-Session-Id');
     const session = sessionId ? sessions.get(sessionId) : undefined;
     if (!sessionId) {
       rpcError(res, 400, ErrorCode.InvalidRequest, '缺少 MCP 会话 ID');
-    } else if (!session || session.transport.sessionId !== sessionId) {
+    } else if (!session || session.transport.sessionId !== sessionId || session.linkId !== link?.id) {
       rpcError(res, 404, -32001, 'MCP 会话不存在或已关闭');
     } else {
       session.lastActivity = Date.now();
@@ -148,9 +170,9 @@ export function createStreamableHttpApp(options: AppOptions) {
     }
   }
 
-  app.post('/mcp', async (req, res) => {
+  async function initializeOrForward(req: Request, res: Response, link?: McpLinkRecord) {
     if (req.get('Mcp-Session-Id') || !isInitializeRequest(req.body)) {
-      await forward(req, res);
+      await forward(req, res, link);
       return;
     }
     if (closing) {
@@ -160,11 +182,21 @@ export function createStreamableHttpApp(options: AppOptions) {
     const sessionId = randomUUID();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => sessionId });
     transport.onclose = () => { sessions.delete(sessionId); };
-    sessions.set(sessionId, { transport, lastActivity: Date.now() });
+    sessions.set(sessionId, { transport, lastActivity: Date.now(), linkId: link?.id });
     try {
-      await createServerForSession().connect(transport);
+      await createServerForSession(link && {
+        linkContext: { id: link.id, label: link.label },
+        onToolCompleted: ({ anlasSpent }) => {
+          void linkStore.recordUsage(link.id, anlasSpent ?? 0).catch(() => console.error('记录 MCP 链接使用统计失败'));
+        },
+      }).connect(transport);
       if (closing) {
         rpcError(res, 503, ErrorCode.InternalError, 'MCP 服务正在关闭');
+        return;
+      }
+      if (link && (!sessions.has(sessionId) || linkStore.findActiveByToken(link.token)?.id !== link.id)) {
+        await removeSession(sessionId);
+        res.sendStatus(404);
         return;
       }
       await transport.handleRequest(req, res, req.body);
@@ -173,9 +205,41 @@ export function createStreamableHttpApp(options: AppOptions) {
       await removeSession(sessionId);
       throw error;
     }
+  }
+
+  app.use('/mcp', parseMcpBody);
+  app.post('/mcp', (req, res) => initializeOrForward(req, res));
+  app.get('/mcp', (req, res) => forward(req, res));
+  app.delete('/mcp', (req, res) => forward(req, res));
+
+  function activeLink(req: Request, res: Response): McpLinkRecord | undefined {
+    const token = req.params.token;
+    const link = typeof token === 'string' ? linkStore.findActiveByToken(token) : undefined;
+    if (!link) res.sendStatus(404);
+    return link;
+  }
+
+  const dynamicMcp = app.route(LINK_MCP_PATH);
+  dynamicMcp.all(async (req, res, next) => {
+    await linkStore.init();
+    if (activeLink(req, res)) next();
   });
-  app.get('/mcp', forward);
-  app.delete('/mcp', forward);
+  dynamicMcp.post(parseMcpBody, (req, res) => {
+    // 请求体读取期间，链接可能被停用、轮换或到期。
+    const link = activeLink(req, res);
+    if (link) return initializeOrForward(req, res, link);
+  });
+  const dynamicForward = (req: Request, res: Response) => {
+    const link = activeLink(req, res);
+    if (link) return forward(req, res, link);
+  };
+  dynamicMcp.get(dynamicForward);
+  dynamicMcp.delete(dynamicForward);
+
+  if (options.adminEnabled !== false) {
+    const adminAuth = options.adminAuth ?? new AdminAuth({ archiveDir, adminPassword: options.adminPassword });
+    registerAdminRoutes(app, { archiveDir, client, imageOrigin, publicOrigin, linkStore, adminAuth, onRevokeLink: revokeLinkSessions });
+  }
   app.use(handleHttpError);
 
   const cleanupInterval = setInterval(() => {
@@ -189,15 +253,17 @@ export function createStreamableHttpApp(options: AppOptions) {
     closing = true;
     clearInterval(cleanupInterval);
     await Promise.all([...sessions.keys()].map(removeSession));
+    await linkStore.flush();
   }
 
-  return { app, close };
+  return { app, close, revokeLinkSessions };
 }
 
 export function createSseApp(options: AppOptions) {
   const { app, createServerForSession } = createHttpApp('sse', options, ['/sse', '/message']);
   const sessions = new Map<string, SSEServerTransport>();
   let closing = false;
+  app.use(['/sse', '/message'], parseMcpBody);
 
   app.get('/sse', async (_req, res) => {
     if (closing) {
@@ -250,7 +316,15 @@ export async function startHttpServer(mode: HttpMode): Promise<void> {
       if (!origin) throw new Error('MCP_ALLOWED_ORIGINS 必须填写 * 或逗号分隔的 HTTP/HTTPS 源地址');
       return origin.origin;
     });
-  const options = { ...await getRuntimeOptions(), bindHost, allowedOrigins };
+  const options: AppOptions = { ...await getRuntimeOptions(), bindHost, allowedOrigins };
+  if (mode === 'streamable-http') {
+    const configuredOrigin = process.env.MCP_PUBLIC_ORIGIN;
+    options.publicOrigin = configuredOrigin ? parseOrigin(configuredOrigin) : options.imageOrigin;
+    if (configuredOrigin && !options.publicOrigin) throw new Error('MCP_PUBLIC_ORIGIN 必须是无路径的 HTTP/HTTPS 源地址');
+    options.linkStore = new LinkStore(options.archiveDir);
+    options.adminAuth = new AdminAuth({ archiveDir: options.archiveDir, adminPassword: process.env.MCP_ADMIN_PASSWORD });
+    await Promise.all([options.linkStore.init(parseBootstrapLinks()), options.adminAuth.init()]);
+  }
   const { app, close } = mode === 'streamable-http' ? createStreamableHttpApp(options) : createSseApp(options);
   const server = createServer({ headersTimeout: 15_000, requestTimeout: 120_000 }, app);
   try {

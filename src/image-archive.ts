@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdtemp, open, opendir, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { chmod, lstat, mkdir, mkdtemp, open, opendir, rename, rm, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import sharp from 'sharp';
 import { sniffImageFormat } from './response-unpack.js';
 import type { ImageExtension, ImageGenerationParams, ImageMimeType } from './types.js';
 
@@ -11,6 +12,9 @@ const IMAGE_EXTENSIONS = ['png', 'webp', 'jpg'] as const;
 const FS_TIMEOUT = 15_000;
 const MAX_ARCHIVED_IMAGE_BYTES = 96 * 1024 * 1024;
 const MAX_METADATA_BYTES = 1024 * 1024;
+const THUMBNAIL_WIDTH = 480;
+const THUMBNAIL_MAX_PIXELS = 64 * 1024 * 1024;
+const archiveOperations = new Map<string, Promise<unknown>>();
 
 export interface ArchiveMetadataInput {
   tool: string;
@@ -22,6 +26,8 @@ export interface ArchiveMetadataInput {
   prompt_preview?: string;
   note?: string;
   anlas_spent?: number;
+  link_id?: string;
+  link_label?: string;
 }
 
 export interface ArchivedImageMetadata extends Partial<ArchiveMetadataInput> {
@@ -175,26 +181,190 @@ export async function loadArchivedImage(archiveDir: string, id: string): Promise
   throw missingArchive();
 }
 
-export async function listArchivedImages(archiveDir: string, limit = 20): Promise<ArchivedImageMetadata[]> {
-  if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('归档查询数量必须为非负整数');
-  if (limit === 0) return [];
-  const signal = AbortSignal.timeout(FS_TIMEOUT);
+async function* scanArchivedImages(archiveDir: string, signal: AbortSignal): AsyncGenerator<ArchivedImageMetadata> {
   const directory = await opendir(archiveDir);
-  const records: Array<{ metadata: ArchivedImageMetadata; timestamp: number }> = [];
   for await (const entry of directory) {
     signal.throwIfAborted();
     if (!entry.isDirectory() || !ARCHIVE_ID_REGEX.test(entry.name)) continue;
     try {
-      const metadata = await readMetadata(join(archiveDir, entry.name), entry.name, signal);
-      const timestamp = Date.parse(metadata.created_at);
-      const index = records.findIndex(item => item.timestamp < timestamp ||
-        (item.timestamp === timestamp && item.metadata.id < metadata.id));
-      if (index >= 0) records.splice(index, 0, { metadata, timestamp });
-      else if (records.length < limit) records.push({ metadata, timestamp });
-      if (records.length > limit) records.pop();
+      yield await readMetadata(join(archiveDir, entry.name), entry.name, signal);
     } catch (error) {
       if (!isMissing(error) && !(error instanceof SyntaxError)) throw error;
     }
   }
+}
+
+export async function listArchivedImages(archiveDir: string, limit = 20): Promise<ArchivedImageMetadata[]> {
+  if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('归档查询数量必须为非负整数');
+  if (limit === 0) return [];
+  const signal = AbortSignal.timeout(FS_TIMEOUT);
+  const records: Array<{ metadata: ArchivedImageMetadata; timestamp: number }> = [];
+  for await (const metadata of scanArchivedImages(archiveDir, signal)) {
+    const timestamp = Date.parse(metadata.created_at);
+    const index = records.findIndex(item => item.timestamp < timestamp ||
+      (item.timestamp === timestamp && item.metadata.id < metadata.id));
+    if (index >= 0) records.splice(index, 0, { metadata, timestamp });
+    else if (records.length < limit) records.push({ metadata, timestamp });
+    if (records.length > limit) records.pop();
+  }
   return records.map(record => record.metadata);
+}
+
+export interface ArchiveQuery {
+  limit?: number;
+  offset?: number;
+  q?: string;
+  model?: string;
+  tool?: string;
+  link_id?: string;
+  sort?: 'newest' | 'oldest';
+}
+
+export async function queryArchivedImages(archiveDir: string | undefined, query: ArchiveQuery = {}) {
+  const { limit = 50, offset = 0, q, model, tool, link_id, sort = 'newest' } = query;
+  if (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(offset) || offset < 0) {
+    throw new RangeError('归档查询的 limit 和 offset 必须为非负整数');
+  }
+
+  const models = new Set<string>();
+  const tools = new Set<string>();
+  const links = new Map<string, { label: string; timestamp: number }>();
+  const hits: Array<{ id: string; timestamp: number }> = [];
+  const items: ArchivedImageMetadata[] = [];
+  if (archiveDir) {
+    const signal = AbortSignal.timeout(FS_TIMEOUT);
+    const needle = q?.trim().toLowerCase();
+    for await (const item of scanArchivedImages(archiveDir, signal)) {
+      const timestamp = Date.parse(item.created_at);
+      if (typeof item.model === 'string' && item.model) models.add(item.model);
+      if (typeof item.tool === 'string' && item.tool) tools.add(item.tool);
+      if (typeof item.link_id === 'string' && item.link_id) {
+        const existing = links.get(item.link_id);
+        const label = typeof item.link_label === 'string' && item.link_label ? item.link_label : undefined;
+        if (!existing || (label && timestamp >= existing.timestamp)) {
+          links.set(item.link_id, { label: label ?? item.link_id, timestamp: label ? timestamp : -Infinity });
+        }
+      }
+      if ((model && item.model !== model) || (tool && item.tool !== tool) || (link_id && item.link_id !== link_id)) continue;
+      if (needle && ![item.id, item.seed, item.prompt_preview, item.model, item.link_label, item.tool, item.action]
+        .some(value => (typeof value === 'string' || typeof value === 'number') && String(value).toLowerCase().includes(needle))) {
+        continue;
+      }
+      hits.push({ id: item.id, timestamp });
+    }
+    // 排序只保留 ID 与时间，读取当前页时才保留完整元数据。
+    const direction = sort === 'oldest' ? 1 : -1;
+    hits.sort((a, b) => direction * (a.timestamp - b.timestamp || a.id.localeCompare(b.id)));
+    for (let index = offset; index < hits.length && items.length < limit; index++) {
+      const { id } = hits[index];
+      try {
+        items.push(await readMetadata(await archivePath(archiveDir, id, signal), id, signal));
+      } catch (error) {
+        if (!isMissing(error) && !(error instanceof SyntaxError)) throw error;
+      }
+    }
+  }
+
+  return {
+    items, total: hits.length, hasMore: offset + items.length < hits.length,
+    facets: {
+      models: [...models].sort(), tools: [...tools].sort(),
+      links: [...links].map(([id, { label }]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)),
+    },
+  };
+}
+
+export async function getArchiveStats(archiveDir?: string) {
+  let totalCount = 0;
+  let totalBytes = 0;
+  const models = new Map<string, number>();
+  const links = new Map<string, number>();
+  if (archiveDir) {
+    const signal = AbortSignal.timeout(FS_TIMEOUT);
+    for await (const item of scanArchivedImages(archiveDir, signal)) {
+      totalCount++;
+      if (Number.isSafeInteger(item.size_bytes) && item.size_bytes >= 0) totalBytes += item.size_bytes;
+      if (typeof item.model === 'string' && item.model) models.set(item.model, (models.get(item.model) ?? 0) + 1);
+      if (typeof item.link_id === 'string' && item.link_id) links.set(item.link_id, (links.get(item.link_id) ?? 0) + 1);
+    }
+  }
+  return { totalCount, totalBytes, models: Object.fromEntries(models), links: Object.fromEntries(links) };
+}
+
+async function withArchiveOperation<T>(archiveDir: string, id: string, operation: () => Promise<T>): Promise<T> {
+  if (!ARCHIVE_ID_REGEX.test(id)) throw new Error('归档图片 ID 无效');
+  const key = resolve(archiveDir, id);
+  const previous = archiveOperations.get(key) ?? Promise.resolve();
+  const pending = previous.then(operation, operation);
+  archiveOperations.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (archiveOperations.get(key) === pending) archiveOperations.delete(key);
+  }
+}
+
+async function thumbDirectory(archiveDir: string, signal: AbortSignal, create = false): Promise<string | undefined> {
+  const directory = join(archiveDir, '.thumbs');
+  signal.throwIfAborted();
+  if (create) await mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    const info = await lstat(directory);
+    signal.throwIfAborted();
+    if (!info.isDirectory()) throw new Error('缩略图缓存路径必须是真实目录');
+    if ((info.mode & 0o777) !== 0o700) await chmod(directory, 0o700);
+    return directory;
+  } catch (error) {
+    if (!create && (error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+export function deleteArchivedImage(archiveDir: string, id: string): Promise<void> {
+  return withArchiveOperation(archiveDir, id, async () => {
+    const signal = AbortSignal.timeout(FS_TIMEOUT);
+    const path = await archivePath(archiveDir, id, signal);
+    const directory = await thumbDirectory(archiveDir, signal);
+    if (directory) await rm(join(directory, `${id}.webp`), { force: true });
+    signal.throwIfAborted();
+    await rm(path, { recursive: true });
+  });
+}
+
+export function getOrCreateThumbnail(archiveDir: string, id: string, maxWidth = THUMBNAIL_WIDTH): Promise<Buffer> {
+  return withArchiveOperation(archiveDir, id, async () => {
+    if (!Number.isSafeInteger(maxWidth) || maxWidth <= 0) throw new RangeError('缩略图宽度必须为正整数');
+    const signal = AbortSignal.timeout(FS_TIMEOUT);
+    await archivePath(archiveDir, id, signal);
+    const cacheable = maxWidth === THUMBNAIL_WIDTH;
+    const directory = cacheable ? await thumbDirectory(archiveDir, signal) : undefined;
+    if (directory) {
+      try {
+        const cached = await readArchiveFile(join(directory, `${id}.webp`), MAX_ARCHIVED_IMAGE_BYTES, signal);
+        if (sniffImageFormat(cached)?.ext === 'webp') return cached;
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+      }
+    }
+
+    const { buffer } = await loadArchivedImage(archiveDir, id);
+    const thumbnail = await sharp(buffer, { limitInputPixels: THUMBNAIL_MAX_PIXELS })
+      .resize({ width: maxWidth, withoutEnlargement: true }).webp({ quality: 80 })
+      .timeout({ seconds: FS_TIMEOUT / 1_000 }).toBuffer();
+    if (cacheable) {
+      const target = join(archiveDir, '.thumbs', `${id}.webp`);
+      const temporary = `${target}.${randomBytes(8).toString('hex')}.tmp`;
+      const cacheSignal = AbortSignal.timeout(FS_TIMEOUT);
+      if (!directory) await thumbDirectory(archiveDir, cacheSignal, true);
+      try {
+        await writeFile(temporary, thumbnail, { flag: 'wx', mode: 0o600, signal: cacheSignal });
+        cacheSignal.throwIfAborted();
+        await rename(temporary, target);
+      } catch (error) {
+        await rm(temporary, { force: true }).catch(() => console.error('清理缩略图临时文件失败'));
+        throw error;
+      }
+    }
+    return thumbnail;
+  });
 }
