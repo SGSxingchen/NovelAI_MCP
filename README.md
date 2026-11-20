@@ -17,11 +17,11 @@
 
 ## ✨ 特性
 
-- 🎨 **最新模型支持** - 支持 NovelAI Diffusion V4.5 Full、V5 Full 和 V5 Curated
-- 🚀 **双传输模式** - Stdio、HTTP SSE、Streamable HTTP
-- 🎭 **多角色支持** - V4+ 角色定位和独立提示词系统
-- 📝 **中文优化** - 工具描述使用中文，AI 更准确识别调用时机
-- 🔧 **灵活部署** - 支持本地运行或 Docker 容器化
+- 🎨 **9 大模型全覆盖** - 支持 NovelAI Diffusion V5（Curated / Full / Full Medium）、V4.5（Full / Curated）、V4（Full / Curated Preview）与 V3（Anime / Furry）
+- 🧰 **9 个全功能 MCP 工具** - 文生图、图生图、局部重绘（支持 8×8 区域自动遮罩）、8 项导演工具、图像放大、Vibe 编码与缓存复用、标签建议、订阅/Anlas 查询与归档图库检索
+- 🔁 **图库 ID 闭环** - 所有出图与处理结果自动归档（支持 PNG / WebP / JPEG，兼容 v1 历史归档）并返回 `image_id` 与公开短链，可直接回传作为后续编辑或参考输入
+- 🚀 **三传输统一架构** - Stdio、Streamable HTTP（推荐，兼容 Gemini Cloud MCP）与 Legacy SSE 共享同一套工具与归档能力，HTTP 请求体上限提升至 50MB
+- 🛡️ **安全与费用防护** - HTTPS 远端图下载内置 SSRF 防护，HTTP 模式禁读本地文件，Vibe 编码持久化缓存与并发去重减少重复 Anlas 消耗
 
 ## 📦 快速开始
 
@@ -113,39 +113,43 @@ npm run start:sse
 - **URL**: `http://localhost:3000/sse`
 - **传输**: Server-Sent Events (SSE)
 
-## 🎯 支持的模型
+## 🎯 支持的模型（9 个）
 
+| 模型 ID | 说明 | 特性摘要 |
+|---------|------|----------|
+| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（**默认**） | 最多 32 角色、透明背景；局部重绘自动回退至 `nai-diffusion-4-5-curated-inpainting`（6 角色） |
+| `nai-diffusion-5-full` | NovelAI Diffusion V5 Full | 最多 32 角色、透明背景、独立 inpainting |
+| `nai-diffusion-5-full-medium` | NovelAI Diffusion V5 Full Medium | 硬锁定 14 步 / `k_euler_ancestral` / `cfg_rescale=0` / `uc_preset=heavy` |
+| `nai-diffusion-4-5-full` | NovelAI Diffusion V4.5 Full | 最多 6 角色、精确参考（Precise Reference）、Vibe Transfer、Variety+ |
+| `nai-diffusion-4-5-curated` | NovelAI Diffusion V4.5 Curated | 同 V4.5 Full 能力矩阵 |
+| `nai-diffusion-4-full` | NovelAI Diffusion V4 Full | 最多 6 角色、Vibe Transfer（含局部重绘）、Variety+ |
+| `nai-diffusion-4-curated-preview` | NovelAI Diffusion V4 Curated Preview | 同 V4 Full 能力矩阵 |
+| `nai-diffusion-3` | NovelAI Diffusion V3 Anime | SMEA / SMEA DYN / Auto SMEA / Decrisp / `native` 调度、448×448 原图 Vibe |
+| `nai-diffusion-furry-3` | NovelAI Diffusion V3 Furry | 同 V3 Anime 能力矩阵 |
 
-| 模型 | 说明 |
-|------|------|
-| `nai-diffusion-4-5-full` | NovelAI Diffusion V4.5 Full（显式选择） |
-| `nai-diffusion-5-full` | NovelAI Diffusion V5 Full（显式选择） |
-| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（默认） |
+## 🧰 MCP 工具列表（9 个）
 
-
-## 🔧 核心参数
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `base_prompt` | string | 全局场景和风格描述 |
-| `base_negative_prompt` | string | 全局负面提示词 |
-| `characters` | array | 角色数组（单人/多人都要用） |
-| `width` / `height` | number | 图片尺寸（必须是 64 的倍数） |
-| `model` | string | 可选。默认 V5 Curated。V5 适用单独的额度规则，可能消耗 Anlas |
-| `steps` | number | 采样步数，省略时 V4.5 为 28，V5 为 23 |
-
-完整参数列表请查看 [快速参考](./docs/QUICK-REFERENCE.md)。
+| 工具名 | 用途 | 关键特性 |
+|--------|------|----------|
+| `generate_image` | 文生图 | 兼容旧版 7 参数；支持 9 模型、多角色、采样器/日程、Variety+、V5 透明背景、精确参考、Vibe、多图 `n_samples` 与 PNG/WebP 输出 |
+| `img2img` | 图生图 | 支持归档 `image_id` / 短链 / HTTPS / Base64 / 数据 URI（Stdio 支持本地文件）；支持 `strength`、`noise`、`color_correct`、`extra_noise_seed` |
+| `inpaint_image` | 局部重绘 | 支持 `mask_image` 或 `mask_regions`（最多 64 个归一化矩形/椭圆自动生成 8×8 对齐二值遮罩）；支持 `inpaint_strength`、`add_original_image` |
+| `augment_image` | 导演工具 | 支持 `lineart`、`sketch`、`colorize`、`declutter`、`declutter-keep-bubbles`、`emotion`（24 种情绪）、`bg-removal`（返回 3 图）、`pixel-snap` |
+| `upscale_image` | 图像放大 | 2026 `/ai/upscale` 协议；默认 `auto_fit_1mp=true` 自动将超过 1,048,576 像素的源图等比缩图至上限内 |
+| `encode_vibe` | Vibe 风格编码 | 为 V4 / V4.5 预编码参考图并返回可跨重启复用的 `vibe_id`（落盘 `<archiveDir>/.vibe-cache` 并合并并发请求） |
+| `suggest_tags` | 标签建议 | 按提示词片段与模型返回 `en` / `jp` 标签补全列表 |
+| `get_subscription` | 订阅与余额查询 | 返回订阅等级、到期时间、固定/购买 Anlas 余额与 V5 用量条信息 |
+| `list_archived_images` | 图库检索 | 倒序列出最近归档图片，或按 `image_id` / 短链读取单图元数据与 PNG 内嵌参数 |
 
 ## 📊 传输模式对比
 
 | 特性 | Stdio 模式 | Streamable HTTP | SSE 模式 |
 |------|-----------|----------------|----------|
-| **适用场景** | Claude Desktop | LobeChat、Dify（推荐） | SSE 客户端 |
+| **适用场景** | Claude Desktop | Gemini Cloud MCP、LobeChat、Dify（推荐） | Legacy SSE 客户端 |
 | **协议标准** | MCP Stdio | MCP Streamable HTTP | MCP SSE Transport |
-| **端点** | - | `/mcp` | `/sse` + `/message` |
-| **远程访问** | ❌ | ✅ | ✅ |
-| **多客户端** | ❌ | ✅ | ✅ |
-| **代理支持** | ❌ | ✅ | ✅ |
+| **端点** | - | `/mcp`、`/health`、`/novelai-images/:id.(png\|webp\|jpg)` | `/sse`、`/message`、`/health`、`/novelai-images/:id.(png\|webp\|jpg)` |
+| **远程访问 / 50MB 请求体** | 本地文件可读 | ✅（禁读本地文件） | ✅（禁读本地文件） |
+| **多客户端与归档短链** | ❌ | ✅ | ✅ |
 | **启动命令** | `npm run start:stdio` | `npm run start:http` | `npm run start:sse` |
 
 ## 🌍 环境变量
@@ -153,10 +157,11 @@ npm run start:sse
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
 | `NOVELAI_API_KEY` | ✅ | - | NovelAI API 密钥 |
-| `PORT` | ❌ | 3000 | HTTP 服务器端口（仅 HTTP 模式） |
-| `MCP_BIND_HOST` | 否 | `::` | Streamable HTTP 监听地址。通过本机 Nginx 提供 HTTPS 时可设为 `127.0.0.1` |
-| `MCP_IMAGE_PUBLIC_ORIGIN` | 否 | — | Streamable HTTP 图片链接使用的 HTTPS 域名。启用时须反代 `/novelai-images/` |
-| `MCP_IMAGE_ARCHIVE_DIR` | 否 | 配置图片链接时为 `outputs` | Streamable HTTP 永久归档目录。建议使用持久卷或独立绝对路径 |
+| `PORT` | ❌ | `3000` | HTTP 服务器端口（Streamable HTTP / SSE 模式） |
+| `MCP_BIND_HOST` | ❌ | Streamable HTTP 为 `::` | HTTP 监听地址。通过本机 Nginx 提供 HTTPS 时建议设为 `127.0.0.1` |
+| `MCP_IMAGE_PUBLIC_ORIGIN` | ❌ | - | 公网 HTTPS 域名（无路径）。启用时须反代 `/novelai-images/`，回执附带公开短链 |
+| `MCP_IMAGE_ARCHIVE_DIR` | ❌ | 配置图片链接时为 `outputs` | 图片与 `.vibe-cache` 持久化归档目录。建议使用独立绝对路径或持久卷 |
+| `MCP_ALLOWED_ORIGINS` | ❌ | - | 逗号分隔的额外允许 HTTP/HTTPS `Origin` 白名单（本机及 `MCP_IMAGE_PUBLIC_ORIGIN` 默认放行） |
 | `HTTPS_PROXY` | ❌ | - | HTTPS 代理地址 |
 | `HTTP_PROXY` | ❌ | - | HTTP 代理地址 |
 
@@ -183,6 +188,9 @@ npm ci
 
 # 编译
 npm run build
+
+# 运行单元测试
+npm test
 
 # 开发模式
 npm run dev

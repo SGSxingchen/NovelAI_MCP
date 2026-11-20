@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.0（2026-11-21）
+
+### Added
+- **9 大模型全量支持**：覆盖 V5（`nai-diffusion-5-curated`、`nai-diffusion-5-full`、`nai-diffusion-5-full-medium`）、V4.5（`nai-diffusion-4-5-full`、`nai-diffusion-4-5-curated`）、V4（`nai-diffusion-4-full`、`nai-diffusion-4-curated-preview`）与 V3（`nai-diffusion-3`、`nai-diffusion-furry-3`）及其能力矩阵（`src/model-registry.ts`）。
+  - 自动处理 V5 Curated 局部重绘回退至 `nai-diffusion-4-5-curated-inpainting`（同步限制 6 角色并输出回退提示）。
+  - 支持 V5 Full Medium 硬锁定参数、V5 透明背景（`straight_alpha` + `tag_hint_transparent_background`）、V4/V4.5 精确参考（Precise Reference）与 Vibe Transfer、V3 SMEA/Decrisp/native 调度以及 Variety+ 自动分辨率缩放。
+- **9 个扁平化 MCP 工具**（`src/mcp-tools.ts`，严格兼容 Gemini Cloud MCP Schema 规范与旧版 `generate_image` 7 参数）：
+  - `generate_image`、`img2img`、`inpaint_image`、`augment_image`（8 种导演工具 / 24 种情绪 / 去背景 3 图解包）、`upscale_image`（2026 `/ai/upscale` 协议与 1MP 自动等比缩图）、`encode_vibe`、`suggest_tags`、`get_subscription`、`list_archived_images`。
+- **图库 ID 闭环与多格式归档**（`src/image-archive.ts`、`src/image-input.ts`）：
+  - 生成/编辑结果统一归档并写入 v2 元数据（完全兼容历史 v1 `.png`），路由 `/novelai-images/:id.(png|webp|jpg)` 按真实格式返回；文本回执同时提供 `image_id` 与公开短链，可直接回传给图生图、局部重绘、放大、导演工具与参考图参数。
+  - 新增 `list_archived_images` 支持按时间倒序列出归档或按 `image_id` 提取 PNG 内嵌参数。
+- **Vibe 编码持久化缓存**（`src/vibe-cache.ts`）：按原图字节、模型、提取度与遮罩摘要计算 `vibe_id`，支持内存与 `<archiveDir>/.vibe-cache` 持久化复用及并发编码去重，减少重复 Anlas 消耗。
+- **基于 `sharp` 的图像与 8×8 区域自动遮罩预处理**（`src/image-input.ts`）：支持 `mask_regions`（归一化矩形/椭圆自动生成 8×8 对齐二值蒙版）、Precise Reference 纯黑居中 letterbox、V3 Vibe 448×448 letterbox 与 1MP 等比缩图。
+- **自动化测试套件**：新增 `tests/` 下 5 套单元测试（`npm test` 与 `npm run test:http`）。
+
+### Changed
+- **三入口统一架构**：Stdio（`src/index.ts`）、Streamable HTTP（`src/streamable-http-server.ts`）与 Legacy SSE（`src/http-server.ts`）全面复用 `src/mcp-tools.ts`、`src/http-app.ts` 与 `src/runtime.ts`；SSE 与 Streamable HTTP 均支持图片归档、短链与 `/health` 版本/工具数输出。
+- **HTTP 容量与安全加固**：Express JSON 请求体上限提升至 `50mb`；HTTPS 远程图下载内置 SSRF 防护（拦截私有/保留/回环/IPv6 映射地址，固定解析 IP 防止 DNS 重绑定，禁止重定向与凭据）；HTTP 模式禁止读取本地文件路径；新增 `MCP_ALLOWED_ORIGINS` 来源白名单校验。
+
 ## 1.2.3（2026-11-18）
 
 - 图片与图库元数据持久化归档，下载链接可跨服务重启使用。

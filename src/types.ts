@@ -1,10 +1,15 @@
-/**
- * NovelAI API Types and Interfaces
- * 支持 NovelAI Diffusion V4.5 Full 和 V5
- */
-
 export const DEFAULT_MODEL = 'nai-diffusion-5-curated';
-export const IMAGE_MODELS = ['nai-diffusion-4-5-full', 'nai-diffusion-5-full', DEFAULT_MODEL] as const;
+export const IMAGE_MODELS = [
+  DEFAULT_MODEL,
+  'nai-diffusion-5-full',
+  'nai-diffusion-5-full-medium',
+  'nai-diffusion-4-5-full',
+  'nai-diffusion-4-5-curated',
+  'nai-diffusion-4-full',
+  'nai-diffusion-4-curated-preview',
+  'nai-diffusion-3',
+  'nai-diffusion-furry-3',
+] as const;
 export type Model = (typeof IMAGE_MODELS)[number];
 
 export function resolveImageModel(value: unknown): Model {
@@ -14,30 +19,40 @@ export function resolveImageModel(value: unknown): Model {
   return model;
 }
 
+export const SAMPLERS = [
+  'k_euler_ancestral', 'k_euler', 'k_dpmpp_2s_ancestral', 'k_dpmpp_2m',
+  'k_dpmpp_sde', 'k_dpmpp_2m_sde', 'k_dpm_2', 'k_dpm_fast', 'k_lms', 'pndm', 'ddim_v3', 'ddim',
+] as const;
+export const NOISE_SCHEDULES = ['native', 'karras', 'exponential', 'polyexponential'] as const;
+export const IMAGE_FORMATS = ['png', 'webp'] as const;
+export const QUALITY_PRESETS = ['standard', 'light', 'none'] as const;
+export const UC_PRESET_NAMES = ['heavy', 'light', 'furry', 'human', 'none'] as const;
+export const PRECISE_REFERENCE_TYPES = ['character', 'style', 'character&style', 'costume', 'delta'] as const;
+export const AUGMENT_REQ_TYPES = [
+  'lineart', 'sketch', 'colorize', 'declutter', 'declutter-keep-bubbles', 'emotion', 'bg-removal', 'pixel-snap',
+] as const;
+export const EMOTION_MOODS = [
+  'neutral', 'happy', 'sad', 'angry', 'scared', 'surprised', 'tired', 'excited',
+  'nervous', 'thinking', 'confused', 'shy', 'disgusted', 'smug', 'bored', 'laughing',
+  'irritated', 'aroused', 'embarrassed', 'worried', 'love', 'determined', 'hurt', 'playful',
+] as const;
+
 export type Action = 'generate' | 'img2img' | 'infill';
-
-export type Sampler =
-  | 'k_euler'
-  | 'k_euler_ancestral'
-  | 'k_dpmpp_2s_ancestral'
-  | 'k_dpmpp_2m'
-  | 'k_dpmpp_sde'
-  | 'ddim_v3'
-  | 'ddim';
-
-export type NoiseSchedule =
-  | 'native'
-  | 'karras'
-  | 'exponential'
-  | 'polyexponential';
-
-export type ImageFormat = 'png' | 'jpg' | 'webp';
+export type Sampler = (typeof SAMPLERS)[number];
+export type NoiseSchedule = (typeof NOISE_SCHEDULES)[number];
+export type ImageFormat = (typeof IMAGE_FORMATS)[number];
+export type ImageExtension = ImageFormat | 'jpg';
+export type ImageMimeType = 'image/png' | 'image/webp' | 'image/jpeg';
+export type QualityPreset = (typeof QUALITY_PRESETS)[number];
+export type UcPresetName = (typeof UC_PRESET_NAMES)[number];
+export type PreciseReferenceType = (typeof PRECISE_REFERENCE_TYPES)[number];
+export type AugmentReqType = (typeof AUGMENT_REQ_TYPES)[number];
+export type EmotionMood = (typeof EMOTION_MOODS)[number];
 export type StreamType = 'msgpack';
 
-// V4+ Character/Prompt structures
 export interface CharacterCenter {
-  x: number; // 0-1, normalized coordinates
-  y: number; // 0-1, normalized coordinates
+  x: number;
+  y: number;
 }
 
 export interface CharacterCaption {
@@ -63,76 +78,86 @@ export interface V4NegativePrompt {
 
 export interface CharacterPrompt {
   prompt: string;
-  uc: string; // negative prompt for this character
+  uc: string;
   center: CharacterCenter;
   enabled: boolean;
 }
 
-// User-facing simplified parameters
-export interface ImageGenerationParams {
-  // Required
-  prompt: string;
+export interface MaskRegion {
+  shape?: 'rect' | 'ellipse';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
-  // Model selection
+export interface CharacterReferenceInput {
+  image: string;
+  type: PreciseReferenceType;
+  strength?: number;
+  fidelity?: number;
+}
+
+export interface VibeReferenceInput {
+  image?: string;
+  encoded_vibe?: string;
+  vibe_id?: string;
+  strength?: number;
+  information_extracted?: number;
+}
+
+export interface ImageGenerationParams {
+  prompt: string;
   model?: Model;
   action?: Action;
-
-  // Basic parameters
   negative_prompt?: string;
-  width?: number;  // 64-1536, must be multiple of 64
-  height?: number; // 64-1536, must be multiple of 64
-
-  // Sampling parameters
-  steps?: number;           // 1-50
-  scale?: number;           // CFG scale: 0-10
+  width?: number;
+  height?: number;
+  steps?: number;
+  scale?: number;
   sampler?: Sampler;
-  seed?: number;            // Random seed
-  n_samples?: number;       // Number of images: 1-8
-
-  // Advanced parameters
-  uncond_scale?: number;    // Negative prompt strength: 0-1.5
+  seed?: number;
+  n_samples?: number;
+  uncond_scale?: number;
   noise_schedule?: NoiseSchedule;
-  sm?: boolean;             // SMEA (ignored if autoSmea is true)
-  sm_dyn?: boolean;         // SMEA DYN (ignored if autoSmea is true)
-  autoSmea?: boolean;       // Auto SMEA (V4.5+)
+  sm?: boolean;
+  sm_dyn?: boolean;
+  autoSmea?: boolean;
   dynamic_thresholding?: boolean;
-  cfg_rescale?: number;     // 0-1
-
-  // V3+ specific
-  qualityToggle?: boolean;  // Enable quality tags
-  ucPreset?: number;        // Negative prompt preset: 0-3
-
-  // V4.5+ specific
-  skip_cfg_above_sigma?: number | null;  // Default: 58 for V4.5
-  prefer_brownian?: boolean;      // Default: true for V4.5
-  image_format?: ImageFormat;     // Output format
-
-  // Multi-character support (V4+)
+  cfg_rescale?: number;
+  qualityToggle?: boolean;
+  qualityPresetId?: QualityPreset;
+  ucPreset?: number;
+  ucPresetId?: UcPresetName;
+  variety_plus?: boolean;
+  skip_cfg_above_sigma?: number | null;
+  prefer_brownian?: boolean;
+  image_format?: ImageFormat;
+  transparent_background?: boolean;
   characterPrompts?: CharacterPrompt[];
-
-  // Image-to-image specific
-  image?: string;           // Base64 encoded image
-  strength?: number;        // Denoising strength: 0-0.99
-  noise?: number;           // Added noise: 0-0.99
-
-  // Inpainting specific
-  mask?: string;            // Base64 encoded mask
+  use_coords?: boolean;
+  legacy_uc?: boolean;
+  characterReferences?: CharacterReferenceInput[];
+  vibeReferences?: VibeReferenceInput[];
+  image?: string;
+  strength?: number;
+  noise?: number;
+  extra_noise_seed?: number;
+  color_correct?: boolean;
+  mask?: string;
   add_original_image?: boolean;
   inpaintImg2ImgStrength?: number;
-
-  // Control
-  controlnet_condition?: string;  // Base64 encoded control image
+  controlnet_condition?: string;
   controlnet_model?: string;
-  controlnet_strength?: number;   // 0-2
-
-  // VibeTransfer
-  reference_image_multiple?: string[];  // Base64 encoded reference images
-  reference_information_extracted?: number[];  // Strength for each reference: 0-1
-  reference_strength?: number;  // Overall strength: 0-1
+  controlnet_strength?: number;
+  reference_image_multiple?: string[];
+  reference_information_extracted?: number[];
+  reference_information_extracted_multiple?: number[];
+  reference_strength?: number;
+  reference_strength_multiple?: number[];
   normalize_reference_strength_multiple?: boolean;
 }
 
-// Internal API request structure for V4+
 export interface NovelAIRequestPayload {
   input: string;
   model: string;
@@ -145,37 +170,104 @@ export interface NovelAIRequestPayload {
     sampler: Sampler;
     steps: number;
     n_samples: number;
-    ucPreset: number;
-    qualityToggle: boolean;
-    autoSmea: boolean;
-    dynamic_thresholding: boolean;
-    controlnet_strength: number;
-    legacy: boolean;
-    add_original_image: boolean;
+    seed: number;
+    ucPreset?: number;
+    ucPresetId?: UcPresetName;
+    qualityToggle?: boolean;
+    qualityPresetId?: QualityPreset;
+    autoSmea?: boolean;
+    dynamic_thresholding?: boolean;
+    controlnet_strength?: number;
+    legacy?: boolean;
+    add_original_image?: boolean;
     cfg_rescale: number;
-    noise_schedule: NoiseSchedule;
-    legacy_v3_extend: boolean;
+    noise_schedule?: NoiseSchedule;
+    legacy_v3_extend?: boolean;
     skip_cfg_above_sigma: number | null;
-    use_coords: boolean;
-    normalize_reference_strength_multiple: boolean;
-    inpaintImg2ImgStrength: number;
+    use_coords?: boolean;
+    normalize_reference_strength_multiple?: boolean;
+    inpaintImg2ImgStrength?: number;
     v4_prompt?: V4Prompt;
     v4_negative_prompt?: V4NegativePrompt;
-    legacy_uc: boolean;
-    seed: number;
-    characterPrompts: CharacterPrompt[];
+    legacy_uc?: boolean;
+    characterPrompts?: CharacterPrompt[];
     negative_prompt: string;
     deliberate_euler_ancestral_bug: boolean;
     prefer_brownian: boolean;
     image_format: ImageFormat;
-    stream: StreamType;
-    [key: string]: any; // For additional dynamic parameters
+    stream?: StreamType;
+    [key: string]: unknown;
   };
+}
+
+export interface UnpackedImage {
+  buffer: Buffer;
+  ext: ImageExtension;
+  mimeType: ImageMimeType;
+  index?: number;
+  seed?: number;
+  filename?: string;
+}
+
+export interface GenerationResult {
+  images: UnpackedImage[];
+  seed: number;
+  model: string;
+  requestedModel: Model;
+  fallbackNotice?: string;
+  rawBuffer: Buffer;
+}
+
+export interface AugmentImageParams {
+  image: string;
+  req_type: AugmentReqType;
+  width: number;
+  height: number;
+  emotion?: EmotionMood;
+  prompt?: string;
+  defry?: number;
+}
+
+export interface UpscaleImageParams {
+  image: string;
+  model?: string;
+  declared_blur_sigma?: number;
+}
+
+export interface EncodeVibeParams {
+  image: string;
+  model: Model;
+  information_extracted?: number;
+  mask?: string;
+  crop_to_mask?: boolean;
+}
+
+export interface SuggestTagsParams {
+  prompt: string;
+  model?: Model;
+  lang?: 'en' | 'jp';
+}
+
+export interface TagSuggestion {
+  tag: string;
+  count?: number;
+  [key: string]: unknown;
+}
+
+export interface SubscriptionSummary {
+  tier: number;
+  tierName: string;
+  active: boolean;
+  expiresAt: string | null;
+  fixedAnlas: number;
+  purchasedAnlas: number;
+  totalAnlas: number;
+  v5Usage: Record<string, unknown> | null;
 }
 
 export interface ImageGenerationResponse {
   event: string;
-  data: string; // Base64 encoded image(s) in ZIP format
+  data: string;
 }
 
 export interface NovelAIError {
