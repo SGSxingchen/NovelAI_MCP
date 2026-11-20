@@ -17,8 +17,8 @@ import { createSseApp, createStreamableHttpApp } from '../dist/http-app.js';
 import { NovelAIClient } from '../dist/novelai-client.js';
 
 const toolNames = [
-  'augment_image', 'encode_vibe', 'generate_image', 'get_subscription', 'img2img',
-  'inpaint_image', 'list_archived_images', 'suggest_tags', 'upscale_image',
+  'augment_image', 'encode_vibe', 'generate_image', 'get_subscription', 'get_v5_stylist_guide',
+  'img2img', 'inpaint_image', 'list_archived_images', 'suggest_tags', 'upscale_image',
 ];
 const clientInfo = { name: 'novelai-mcp-test', version: '1.0.0' };
 const publicOrigin = new URL('https://images.example.test');
@@ -148,7 +148,7 @@ test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格�
   const mcp = new URL('/mcp', serverUrl);
 
   const health = await (await get(new URL('/health', serverUrl))).json();
-  assert.deepEqual(health, { status: 'ok', service: 'novelai-mcp-server', mode: 'streamable-http', version: '2.0.0', tools: 9 });
+  assert.deepEqual(health, { status: 'ok', service: 'novelai-mcp-server', mode: 'streamable-http', version: '2.0.0', tools: 10 });
   const requestBody = { id: 1, method: 'initialize', params: { protocolVersion, capabilities: {}, clientInfo } };
   const invalidOrigin = await postRpc(mcp, requestBody, { Origin: 'https://untrusted.example.test' });
   assert.equal(invalidOrigin.status, 403);
@@ -186,6 +186,18 @@ test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格�
     assert.equal(tool.inputSchema.type, 'object');
     assert.doesNotMatch(JSON.stringify(tool.inputSchema), /"(oneOf|anyOf)"\s*:/);
   }
+  const promptsList = await readResult(await postRpc(mcp, { id: 21, method: 'prompts/list' }, headers));
+  assert.equal(promptsList.prompts[0].name, 'novelai-v5-stylist');
+  const promptResult = await readResult(await postRpc(mcp, {
+    id: 22, method: 'prompts/get', params: { name: 'novelai-v5-stylist', arguments: { aesthetic: 'pop halftone' } },
+  }, headers));
+  assert.match(promptResult.messages[0].content.text, /1\.3::halftone::/);
+  const resourcesList = await readResult(await postRpc(mcp, { id: 23, method: 'resources/list' }, headers));
+  assert.equal(resourcesList.resources[0].uri, 'novelai://skills/v5-stylist');
+  const resourceResult = await readResult(await postRpc(mcp, {
+    id: 24, method: 'resources/read', params: { uri: 'novelai://skills/v5-stylist' },
+  }, headers));
+  assert.match(resourceResult.contents[0].text, /novelai-v5-stylist/);
 
   const result = await readResult(await postRpc(mcp, {
     id: 3,
@@ -246,6 +258,22 @@ test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格�
   const expired = await postRpc(mcp, { id: 5, method: 'tools/list' }, headers);
   assert.equal(expired.status, 404);
   await expired.body?.cancel();
+});
+
+test('MCP_ALLOWED_ORIGINS 支持通配符 * 放行任意客户端 Origin', { timeout: 15_000 }, async t => {
+  const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#114488' } }).png().toBuffer();
+  const { client } = await mockNovelAI(t, png, 'image/png');
+  const { app, close } = createStreamableHttpApp({ client, allowedOrigins: ['*'] });
+  const serverUrl = await listen(t, app, close);
+  const mcp = new URL('/mcp', serverUrl);
+  const res = await postRpc(mcp, { id: 1, method: 'initialize', params: { protocolVersion, capabilities: {}, clientInfo } }, {
+    Origin: 'https://any-desktop-or-web-client.example',
+  });
+  assert.equal(res.status, 200);
+  const sid = res.headers.get('mcp-session-id');
+  assert.ok(sid);
+  await res.body?.cancel();
+  assert.equal((await get(mcp, { method: 'DELETE', headers: { 'Mcp-Session-Id': sid } })).status, 200);
 });
 
 test('旧版 SSE 保留 /sse 和 /message，复用工具、归档及图片路由', { timeout: 15_000 }, async t => {

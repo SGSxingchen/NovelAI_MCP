@@ -21,6 +21,7 @@ export interface ArchiveMetadataInput {
   seed?: number;
   prompt_preview?: string;
   note?: string;
+  anlas_spent?: number;
 }
 
 export interface ArchivedImageMetadata extends Partial<ArchiveMetadataInput> {

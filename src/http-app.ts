@@ -48,10 +48,11 @@ const handleHttpError: ErrorRequestHandler = (error, _req, res, _next) => {
 function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
   const app = express();
   const allowedOrigins = new Set(options.allowedOrigins);
+  const allowAnyOrigin = allowedOrigins.has('*');
   if (options.imageOrigin) allowedOrigins.add(options.imageOrigin.origin);
   app.use(paths, (req, res, next) => {
     const origin = req.get('Origin');
-    if (origin === undefined) {
+    if (origin === undefined || allowAnyOrigin) {
       next();
       return;
     }
@@ -244,8 +245,9 @@ export async function startHttpServer(mode: HttpMode): Promise<void> {
 
   const allowedOrigins = (process.env.MCP_ALLOWED_ORIGINS ?? '').split(',').map(value => value.trim()).filter(Boolean)
     .map(value => {
+      if (value === '*') return '*';
       const origin = parseOrigin(value);
-      if (!origin) throw new Error('MCP_ALLOWED_ORIGINS 必须填写逗号分隔的 HTTP 或 HTTPS 源地址');
+      if (!origin) throw new Error('MCP_ALLOWED_ORIGINS 必须填写 * 或逗号分隔的 HTTP/HTTPS 源地址');
       return origin.origin;
     });
   const options = { ...await getRuntimeOptions(), bindHost, allowedOrigins };

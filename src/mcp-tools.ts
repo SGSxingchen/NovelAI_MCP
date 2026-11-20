@@ -1,5 +1,8 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema,
+  ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { Ajv } from 'ajv';
 import {
@@ -19,8 +22,13 @@ import {
 } from './types.js';
 import type {
   Action, AugmentReqType, CharacterReferenceInput, EmotionMood, ImageExtension, ImageGenerationParams, MaskRegion,
-  Model, SuggestTagsParams, UnpackedImage, VibeReferenceInput,
+  Model, SubscriptionSummary, SuggestTagsParams, UnpackedImage, VibeReferenceInput,
 } from './types.js';
+import {
+  buildV5StylistPromptMessage, renderV5StylistGuide, V5_STYLE_BLUEPRINT_IDS, V5_STYLIST_FULL_GUIDE,
+  V5_STYLIST_RESOURCE_URI, V5_STYLIST_TOPICS,
+} from './v5-stylist.js';
+import type { V5StyleBlueprintId, V5StylistTopic } from './v5-stylist.js';
 import { VibeCache, vibeCacheKey } from './vibe-cache.js';
 
 export const SERVER_NAME = 'novelai-mcp-server';
@@ -33,7 +41,8 @@ const UPSCALE_MAX_PIXELS = 1048576;
 const MAX_REFERENCE_BYTES = 40 * 1024 * 1024;
 const IMAGE_INPUT = '接受归档 ID、本站归档图片链接、公网 HTTPS 图片链接、图像 Base64 或图像数据 URI。仅标准输入输出模式支持本地文件。';
 const IMAGE_RECEIPT = '展示结果中的「查看或下载图片」公网链接，每张图都保留对应链接。';
-const COST_POLICY = '计费红线：Opus 订阅下 V3/V4/V4.5 满足总像素 ≤1,048,576（如 832×1216、1216×832、1024×1024）、steps ≤28、n_samples = 1 且未附加收费参考时为免费（0 Anlas）；超像素、超过 28 步、多图或非 Opus 订阅（Paper/Tablet/Scroll）会按规格扣 Anlas。V5 系列优先消耗独立 V5 额度条，额度条耗尽（isNegative）或超规格时转扣 Anlas。除非用户明确要求，优先保持免费规格（≤1,048,576 像素、≤28 步、单张）。';
+const COST_POLICY = '计费参考说明：Opus 订阅下 V3/V4/V4.5 满足总像素 ≤1,048,576（如 832×1216、1216×832、1024×1024）、steps ≤28、n_samples = 1 且未附加收费参考时免费（0 Anlas）；超像素、超过 28 步、多图或非 Opus 订阅（Paper/Tablet/Scroll）会按规格扣 Anlas。V5 系列优先消耗独立 V5 额度条，耗尽（isNegative）或超规格时转扣 Anlas。出图回执会汇报本次实际消耗的 Anlas 与余额。';
+const V5_STYLIST_HINT = '设计 NovelAI V5 独特画风、去 AI 塑料感、配置阶梯画师权重、海报排版或排查风格偏移时，可先免费调用 get_v5_stylist_guide 获取 V5 风格工程指南。';
 
 const bounded = (type: 'number' | 'integer', description: string, minimum: number, maximum: number) => (
   { type, description, minimum, maximum }
@@ -138,18 +147,18 @@ function tool(
 }
 
 const TOOLS = [
-  tool('generate_image', `按提示词画图，默认使用 V5 Curated。${COST_POLICY}${IMAGE_RECEIPT}`, {
+  tool('generate_image', `按提示词画图，默认使用 V5 Curated。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...generationFields,
     width: { ...dimension('图片宽度（像素），对齐到 64 的倍数，默认 832。Opus 免费上限为 width × height ≤ 1,048,576（如 832×1216、1216×832、1024×1024）。'), default: 832 },
     height: { ...dimension('图片高度（像素），对齐到 64 的倍数，默认 1216。Opus 免费上限为 width × height ≤ 1,048,576。'), default: 1216 },
   }, ['base_prompt']),
-  tool('img2img', `用提示词重绘源图，strength 越大改动越多。${COST_POLICY}${IMAGE_RECEIPT}`, {
+  tool('img2img', `用提示词重绘源图，strength 越大改动越多。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
     strength: unit('去噪强度，默认 0.7。'),
     color_correct: flag('校正颜色以贴近原图，默认开启。'),
     extra_noise_seed: bounded('integer', '额外噪声种子，默认沿用出图种子。', 1, MAX_SEED),
   }, ['base_prompt', 'source_image']),
-  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。V5 Curated 自动回退到 V4.5 Curated。${COST_POLICY}${IMAGE_RECEIPT}`, {
+  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。V5 Curated 自动回退到 V4.5 Curated。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
     mask_image: textField(`黑色保留，白色重绘。与 mask_regions 同时提供时使用此遮罩。${IMAGE_INPUT}`),
     mask_regions: {
@@ -202,6 +211,10 @@ const TOOLS = [
   tool('list_archived_images', `免费只读查询（0 Anlas）：查询归档图片。指定 image_id 时返回单图元数据与 PNG 内嵌参数，否则按时间倒序列出最近归档。${IMAGE_RECEIPT}`, {
     image_id: textField('归档回执中的 43 位 image_id，或本站的完整图片链接。'),
     limit: { ...bounded('integer', '返回最近几张图，默认 10，最多 50。', 1, 50), default: 10 },
+  }, [], true, false),
+  tool('get_v5_stylist_guide', '免费只读查询（0 Anlas）：获取内置 novelai-v5-stylist 风格工程技能指南，包含 V5 Full/Curated 选型、去默认塑料滤镜、物理媒介锚点、三阶画师权重链、5 套参数化风格蓝图、自然语言构图排版、反污染负权重与 Guidance 标定规则。', {
+    topic: { ...choice('按需获取的章节，默认 full 返回完整指南。', V5_STYLIST_TOPICS), default: 'full' },
+    blueprint: choice('可选：直接提取某套风格蓝图及对应 MCP 推荐参数。', V5_STYLE_BLUEPRINT_IDS),
   }, [], true, false),
 ];
 
@@ -355,17 +368,76 @@ function checkVibeReference(ref: VibeReferenceInput, requiresEncoding: boolean):
   }
 }
 
+interface UsageCostSummary {
+  totalSpent: number;
+  perImage: number;
+  remainingTotal: number;
+  remainingFixed: number;
+  remainingPurchased: number;
+  v5Note?: string;
+  line: string;
+}
+
+function summarizeUsageCost(
+  before: SubscriptionSummary | undefined,
+  after: SubscriptionSummary | undefined,
+  imageCount: number,
+): UsageCostSummary | undefined {
+  if (!before || !after) return undefined;
+  const totalSpent = Math.max(0, before.totalAnlas - after.totalAnlas);
+  const perImage = imageCount > 0 ? Number((totalSpent / imageCount).toFixed(2)) : totalSpent;
+  const v5Parts: string[] = [];
+  if (before.v5Usage && after.v5Usage) {
+    if (before.v5Usage.percent !== after.v5Usage.percent) {
+      v5Parts.push(`V5 额度条 ${before.v5Usage.percent}% → ${after.v5Usage.percent}%`);
+    }
+    if (before.v5Usage.purchasedPercent !== after.v5Usage.purchasedPercent) {
+      v5Parts.push(`V5 购买额度 ${before.v5Usage.purchasedPercent}% → ${after.v5Usage.purchasedPercent}%`);
+    }
+  }
+  const v5Note = v5Parts.length > 0 ? `（${v5Parts.join('，')}）` : '';
+  const spendText = imageCount > 1
+    ? `共 ${totalSpent} Anlas（${imageCount} 张，约 ${perImage} Anlas/张）`
+    : `${totalSpent} Anlas`;
+  const freeBadge = totalSpent === 0 && v5Parts.length === 0 ? '（免费）' : '';
+  const line = `本次消耗：${spendText}${freeBadge}${v5Note}，当前剩余 ${after.totalAnlas} Anlas（固定 ${after.fixedAnlas} + 购买 ${after.purchasedAnlas}）。`;
+  return {
+    totalSpent,
+    perImage,
+    remainingTotal: after.totalAnlas,
+    remainingFixed: after.fixedAnlas,
+    remainingPurchased: after.purchasedAnlas,
+    v5Note: v5Parts.length > 0 ? v5Parts.join('，') : undefined,
+    line,
+  };
+}
+
 export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server {
   const { client, archiveDir, imageOrigin, transportLabel = 'MCP' } = options;
   const vibeCache = options.vibeCache ?? new VibeCache(archiveDir);
   const readImage = (input: string) => resolveImageInput(input, options);
 
   const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, {
-    capabilities: { tools: {} },
-    instructions: '使用 NovelAI 将文字转成图片或编辑已有图片。最近的结果可通过归档 ID 再次用于绘图。',
+    capabilities: { tools: {}, prompts: {}, resources: {} },
+    instructions: '使用 NovelAI 生成或编辑图片，结果回执会返回图片链接、archive image_id 与本次实际消耗的 Anlas。设计 NovelAI V5 独特画风、去 AI 塑料感、阶梯画师配权或排查风格漂移前，可先免费调用 get_v5_stylist_guide（或读取资源 novelai://skills/v5-stylist）。',
   });
 
-  async function receipt(images: UnpackedImage[], meta: ReceiptMetadata, vibeIds: string[] = []): Promise<CallToolResult> {
+  async function captureSubscription(): Promise<SubscriptionSummary | undefined> {
+    if (typeof client.getSubscription !== 'function') return undefined;
+    try {
+      const { summary } = await client.getSubscription();
+      return summary;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function receipt(
+    images: UnpackedImage[],
+    meta: ReceiptMetadata,
+    vibeIds: string[] = [],
+    usage?: UsageCostSummary,
+  ): Promise<CallToolResult> {
     const lines = [`NovelAI 已返回 ${images.length} 张图片。`];
     const content: CallToolResult['content'] = [];
     for (const [index, image] of images.entries()) {
@@ -380,11 +452,15 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         width: dimensions?.width ?? meta.width,
         height: dimensions?.height ?? meta.height,
         seed: outputSeed ?? meta.seed,
+        ...(usage ? { anlas_spent: usage.perImage } : {}),
       };
       const parts = [`图 ${index + 1}`];
       if (metadata.model) parts.push(`模型 ${metadata.model}`);
       if (metadata.width !== undefined && metadata.height !== undefined) parts.push(`${metadata.width}×${metadata.height}`);
       if (metadata.seed !== undefined) parts.push(`${outputSeed === undefined ? '请求 ' : ''}seed ${metadata.seed}`);
+      if (usage) {
+        parts.push(images.length > 1 ? `约 ${usage.perImage} Anlas/张` : `消耗 ${usage.totalSpent} Anlas`);
+      }
       if (archiveDir) {
         try {
           const archived = await saveArchivedImage(archiveDir, image.buffer, metadata);
@@ -399,6 +475,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       lines.push(parts.join(' · '));
       content.push({ type: 'image', mimeType: image.mimeType, data: image.buffer.toString('base64') });
     }
+    if (usage) lines.push(usage.line);
     if (meta.note) lines.push(meta.note);
     if (vibeIds.length > 0) lines.push(`可复用的 vibe_id：${[...new Set(vibeIds)].join('、')}。`);
     return { content: [asText(lines.join('\n')), ...content] };
@@ -493,6 +570,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         }
       }
     }
+    const beforeSub = await captureSubscription();
     // 先验证全部输入，再调用可能计费的编码接口。
     for (const ref of rawVibes) {
       const cached = await encodeReference(ref.image, requestedModel, ref.informationExtracted);
@@ -502,10 +580,12 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     if (params.vibeReferences) params.vibeReferences = preparedVibes;
 
     const generated = await client.generateImage(params);
+    const afterSub = beforeSub ? await captureSubscription() : undefined;
+    const usage = summarizeUsageCost(beforeSub, afterSub, generated.images.length);
     return receipt(generated.images, {
       tool: name, action, model: generated.model, width, height, seed: generated.seed,
       prompt_preview: params.prompt.slice(0, 240), note: generated.fallbackNotice,
-    }, vibeIds);
+    }, vibeIds, usage);
   }
 
   async function augment(args: {
@@ -519,11 +599,14 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     const height = args.height ?? size.height;
     const image = width !== size.width || height !== size.height
       ? await prepareImg2ImgImage(source, width, height) : await ensurePngBuffer(source);
+    const beforeSub = await captureSubscription();
     const images = await client.augmentImage({
       image: image.toString('base64'), req_type: args.req_type, emotion: args.emotion,
       prompt: args.prompt, defry: args.defry, width, height,
     });
-    return receipt(images, { tool: 'augment_image', action: args.req_type, width, height, prompt_preview: args.prompt?.slice(0, 240) });
+    const afterSub = beforeSub ? await captureSubscription() : undefined;
+    const usage = summarizeUsageCost(beforeSub, afterSub, images.length);
+    return receipt(images, { tool: 'augment_image', action: args.req_type, width, height, prompt_preview: args.prompt?.slice(0, 240) }, [], usage);
   }
 
   async function upscale(args: {
@@ -539,10 +622,13 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       if (width * height > UPSCALE_MAX_PIXELS) throw new Error('源图超过 1,048,576 像素，请启用 auto_fit_1mp 或缩小图片');
       image = await ensurePngBuffer(source);
     }
+    const beforeSub = await captureSubscription();
     const images = await client.upscaleImage({
       image: image.toString('base64'), model, declared_blur_sigma: args.declared_blur_sigma,
     });
-    return receipt(images, { tool: 'upscale_image', action: 'upscale', model });
+    const afterSub = beforeSub ? await captureSubscription() : undefined;
+    const usage = summarizeUsageCost(beforeSub, afterSub, images.length);
+    return receipt(images, { tool: 'upscale_image', action: 'upscale', model }, [], usage);
   }
 
   async function encode(args: {
@@ -552,11 +638,15 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     if (args.crop_to_mask && !args.mask_image) throw new Error('crop_to_mask 需要提供 mask_image');
     const source = await readImage(args.source_image);
     const mask = args.mask_image ? await readImage(args.mask_image) : undefined;
+    const beforeSub = await captureSubscription();
     const cached = await encodeReference(source, args.model ?? 'nai-diffusion-4-5-full', args.information_extracted ?? 1,
       mask, args.crop_to_mask);
+    const afterSub = beforeSub ? await captureSubscription() : undefined;
+    const usage = summarizeUsageCost(beforeSub, afterSub, 1);
     return asJson({
       vibe_id: cached.id, model: cached.model, information_extracted: cached.information_extracted,
       ...(args.include_raw_base64 ? { encoded_vibe: cached.encoded_vibe } : {}),
+      ...(usage ? { anlas_spent: usage.totalSpent, remaining_anlas: usage.remainingTotal } : {}),
     });
   }
 
@@ -631,6 +721,10 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         }
         case 'list_archived_images':
           return await archive(args);
+        case 'get_v5_stylist_guide': {
+          const input = args as { topic?: V5StylistTopic; blueprint?: V5StyleBlueprintId };
+          return { content: [asText(renderV5StylistGuide(input))] };
+        }
         default:
           throw new Error('未知工具');
       }
@@ -643,5 +737,62 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       return { content: [asText(`错误：${message}`)], isError: true };
     }
   });
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: [{
+      name: 'novelai-v5-stylist',
+      description: 'NovelAI V5 风格工程与生产级提示词专家指南（去默认滤镜、物理媒介锚点、三阶画师权重链、自然语言构图排版与反污染调优）',
+      arguments: [
+        { name: 'subject', description: '可选：要绘制的主题、角色或画面内容', required: false },
+        { name: 'aesthetic', description: '可选：目标美学方向或风格蓝图（如 pop halftone / nihonga / 90s cel / etching / story CG）', required: false },
+        { name: 'variant', description: '可选：指定 V5 模型变体（nai-diffusion-5-full 或 nai-diffusion-5-curated）', required: false },
+      ],
+    }],
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async request => {
+    if (request.params.name !== 'novelai-v5-stylist') {
+      throw new Error(`未知提示词模板：${request.params.name}`);
+    }
+    const promptArgs = request.params.arguments ?? {};
+    return {
+      description: 'NovelAI V5 风格工程专家指南（novelai-v5-stylist）',
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: buildV5StylistPromptMessage({
+            subject: promptArgs.subject,
+            aesthetic: promptArgs.aesthetic,
+            variant: promptArgs.variant,
+          }),
+        },
+      }],
+    };
+  });
+
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [{
+      uri: V5_STYLIST_RESOURCE_URI,
+      name: 'novelai-v5-stylist',
+      title: 'NovelAI V5 风格工程指南（novelai-v5-stylist）',
+      description: '完整的 NovelAI Diffusion V5 风格化设计、画师权重阶梯、5 套风格蓝图、反污染与常见坑指南',
+      mimeType: 'text/markdown',
+    }],
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async request => {
+    if (request.params.uri !== V5_STYLIST_RESOURCE_URI) {
+      throw new Error(`未知资源：${request.params.uri}`);
+    }
+    return {
+      contents: [{
+        uri: V5_STYLIST_RESOURCE_URI,
+        mimeType: 'text/markdown',
+        text: V5_STYLIST_FULL_GUIDE,
+      }],
+    };
+  });
+
   return server;
 }

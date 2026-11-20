@@ -190,3 +190,63 @@ test('img2img 省略角色 center_x 默认居中，非 PNG 源图在 augment/ups
   assert.equal(encRes.isError, undefined);
   assert.equal((await sharp(received.encode).metadata()).format, 'png');
 });
+
+test('出图自动对比前后订阅余额并回报每张消耗 Anlas、V5 额度条变化与归档记录', async t => {
+  const archiveDir = await mkdtemp(join(tmpdir(), 'nai-tool-cost-'));
+  t.after(() => rm(archiveDir, { recursive: true, force: true }));
+  const snapshots = [
+    // 单张付费：5670 -> 5650（消耗 20 Anlas）
+    { tier: 0, tierName: 'Paper', active: false, fixedAnlas: 0, purchasedAnlas: 5670, totalAnlas: 5670 },
+    { tier: 0, tierName: 'Paper', active: false, fixedAnlas: 0, purchasedAnlas: 5650, totalAnlas: 5650 },
+    // 多张（2 张）付费：5650 -> 5614（共 36，约 18 Anlas/张）
+    { tier: 0, tierName: 'Paper', active: false, fixedAnlas: 0, purchasedAnlas: 5650, totalAnlas: 5650 },
+    { tier: 0, tierName: 'Paper', active: false, fixedAnlas: 0, purchasedAnlas: 5614, totalAnlas: 5614 },
+    // V5 额度条消耗（0 Anlas，100% -> 98%）
+    { tier: 3, tierName: 'Opus', active: true, fixedAnlas: 10000, purchasedAnlas: 0, totalAnlas: 10000, v5Usage: { percent: 100, purchasedPercent: 0, isNegative: false } },
+    { tier: 3, tierName: 'Opus', active: true, fixedAnlas: 10000, purchasedAnlas: 0, totalAnlas: 10000, v5Usage: { percent: 98, purchasedPercent: 0, isNegative: false } },
+  ];
+  let idx = 0;
+  const invoke = await connect(t, {
+    archiveDir,
+    imageOrigin: origin,
+    client: {
+      getSubscription: async () => ({ raw: {}, summary: snapshots[idx++] }),
+      generateImage: async params => {
+        const count = params.n_samples ?? 1;
+        const images = Array.from({ length: count }, (_, i) => ({ buffer: png, ext: 'png', mimeType: 'image/png', seed: 100 + i }));
+        return result(params, images);
+      },
+    },
+  });
+
+  const paidSingle = await invoke('generate_image', { base_prompt: 'single' });
+  assert.equal(paidSingle.isError, undefined);
+  assert.match(paidSingle.content[0].text, /消耗 20 Anlas/);
+  assert.match(paidSingle.content[0].text, /本次消耗：20 Anlas，当前剩余 5650 Anlas/);
+  const [singleId] = paidSingle.content[0].text.match(/[A-Za-z0-9_-]{43}/);
+  const singleMeta = await invoke('list_archived_images', { image_id: singleId });
+  const parsedMeta = JSON.parse(singleMeta.content[1].text);
+  assert.equal(parsedMeta.anlas_spent, 20);
+
+  const paidMulti = await invoke('generate_image', { base_prompt: 'multi', n_samples: 2 });
+  assert.equal(paidMulti.isError, undefined);
+  assert.match(paidMulti.content[0].text, /约 18 Anlas\/张/);
+  assert.match(paidMulti.content[0].text, /共 36 Anlas（2 张，约 18 Anlas\/张），当前剩余 5614 Anlas/);
+
+  const v5Meter = await invoke('generate_image', { base_prompt: 'v5', model: 'nai-diffusion-5-full' });
+  assert.equal(v5Meter.isError, undefined);
+  assert.match(v5Meter.content[0].text, /本次消耗：0 Anlas（V5 额度条 100% → 98%），当前剩余 10000 Anlas/);
+});
+
+test('get_v5_stylist_guide 返回完整指南、分章节与预设风格蓝图', async t => {
+  const invoke = await connect(t, { client: {} });
+  const full = await invoke('get_v5_stylist_guide', {});
+  assert.equal(full.isError, undefined);
+  assert.match(full.content[0].text, /novelai-v5-stylist/);
+  assert.match(full.content[0].text, /1\.3::halftone::/);
+
+  const bp = await invoke('get_v5_stylist_guide', { topic: 'decontaminate', blueprint: 'retro_90s_cel' });
+  assert.equal(bp.isError, undefined);
+  assert.match(bp.content[0].text, /year 1995/);
+  assert.match(bp.content[0].text, /-3::glossy skin/);
+});
