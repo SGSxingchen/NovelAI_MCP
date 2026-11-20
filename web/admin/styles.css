@@ -395,7 +395,8 @@ html, body {
 }
 .search-wrap {
   position: relative;
-  flex: 1 1 280px;
+  flex: none;
+  width: 100%;
 }
 .search-icon {
   position: absolute;
@@ -429,6 +430,10 @@ html, body {
   .toolbar {
     flex-direction: row;
     align-items: center;
+  }
+  .search-wrap {
+    flex: 1 1 280px;
+    width: auto;
   }
   .filter-group .select {
     flex: 0 0 auto;
@@ -1003,15 +1008,15 @@ dialog.modal[open]:where(:not([data-closing])) {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 180px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
 .guide-body {
-  padding: 18px;
+  padding: 16px 18px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 .guide-step {
   background: var(--bg);
