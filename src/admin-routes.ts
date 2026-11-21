@@ -9,15 +9,18 @@ import {
 import type { ArchivedImageMetadata, ArchiveQuery } from './image-archive.js';
 import { extractPngTextMetadata } from './image-input.js';
 import { isLinkExpired } from './link-store.js';
-import type { LinkStore, McpLinkRecord } from './link-store.js';
+import type { LinkStore, LinkSummary } from './link-store.js';
+import { getDisclosureMetrics } from './mcp-tools.js';
 import type { NovelAIClient } from './novelai-client.js';
 import { parseOrigin } from './runtime.js';
-import type { ImageExtension } from './types.js';
+import { isDisclosureMode } from './types.js';
+import type { DisclosureMode, ImageExtension } from './types.js';
 
 const ADMIN_PATH = '/novelai-admin';
 const API_PATH = `${ADMIN_PATH}/api`;
 const WEB_DIRECTORY = fileURLToPath(new URL('../web/admin', import.meta.url));
 const MAX_BATCH_DELETE = 200;
+const MAX_IMAGE_PAGE_SIZE = 200;
 
 interface AdminRoutesOptions {
   adminAuth: AdminAuth;
@@ -26,7 +29,8 @@ interface AdminRoutesOptions {
   archiveDir?: string;
   publicOrigin?: URL;
   imageOrigin?: URL;
-  onRevokeLink: (id: string) => void | Promise<void>;
+  defaultDisclosureMode: DisclosureMode;
+  onRevokeLink: (id: string, options?: { onlyStaleMode?: boolean }) => void | Promise<void>;
 }
 
 class AdminRequestError extends Error {
@@ -95,7 +99,9 @@ function archiveQuery(req: Request): ArchiveQuery {
   if (sort !== undefined && sort !== 'newest' && sort !== 'oldest') {
     throw new AdminRequestError(400, '查询参数 sort 必须为 newest 或 oldest');
   }
-  return { limit: number('limit'), offset: number('offset'), q: string('q'), model: string('model'),
+  const limit = number('limit');
+  return { limit: limit === undefined ? undefined : Math.min(limit, MAX_IMAGE_PAGE_SIZE),
+    offset: number('offset'), q: string('q'), model: string('model'),
     tool: string('tool'), link_id: string('link_id'), sort };
 }
 
@@ -116,13 +122,20 @@ function linkExpiry(value: unknown): number | null | undefined {
   throw new AdminRequestError(400, 'expires_in_hours 必须是有效小时数或 null');
 }
 
+function linkDisclosureMode(value: unknown): DisclosureMode | undefined {
+  if (value === undefined || isDisclosureMode(value)) return value;
+  throw new AdminRequestError(400, 'disclosure_mode 必须为 progressive 或 legacy');
+}
+
 export function registerAdminRoutes(app: Express, options: AdminRoutesOptions): void {
-  const { archiveDir, adminAuth, linkStore, client, imageOrigin, onRevokeLink, publicOrigin } = options;
+  const { archiveDir, adminAuth, linkStore, client, imageOrigin, onRevokeLink, publicOrigin, defaultDisclosureMode } = options;
   const configuredOrigin = publicOrigin?.origin ?? null;
+  const { legacyTools: totalActions, ...metrics } = getDisclosureMetrics();
+  const disclosure = { defaultMode: defaultDisclosureMode, totalActions, ...metrics };
   const api = Router();
   const parseJson = express.json({ limit: '64kb' });
 
-  function linkItem(item: McpLinkRecord, req: Request) {
+  function linkItem(item: LinkSummary, req: Request) {
     const host = req.get('host');
     const origin = configuredOrigin ?? (host ? parseOrigin(`${req.protocol}://${host}`)?.origin : undefined);
     return { ...item, url: `${origin ?? ''}/novelai/${encodeURIComponent(item.token)}/mcp`, expired: isLinkExpired(item) };
@@ -153,7 +166,7 @@ export function registerAdminRoutes(app: Express, options: AdminRoutesOptions): 
       links.totalCalls += item.call_count;
       links.totalAnlasSpent += item.total_anlas_spent;
     }
-    res.json({ archive, links, publicOrigin: configuredOrigin });
+    res.json({ archive, links, publicOrigin: configuredOrigin, disclosure });
   });
 
   api.get('/subscription', async (_req, res) => {
@@ -216,19 +229,24 @@ export function registerAdminRoutes(app: Express, options: AdminRoutesOptions): 
     res.json({ items: linkStore.list().map(item => linkItem(item, req)), publicOrigin: configuredOrigin });
   });
   api.post('/links', parseJson, async (req, res) => {
-    const { label, expires_in_hours } = readBody(req);
-    const item = await linkStore.create({ label: linkLabel(label), expires_in_hours: linkExpiry(expires_in_hours) });
+    const { label, expires_in_hours, disclosure_mode } = readBody(req);
+    const item = await linkStore.create({
+      label: linkLabel(label), expires_in_hours: linkExpiry(expires_in_hours), disclosure_mode: linkDisclosureMode(disclosure_mode),
+    });
     res.status(201).json({ item: linkItem(item, req) });
   });
   api.patch('/links/:id', parseJson, async (req, res) => {
     const { id } = req.params;
-    const { label, expires_in_hours, enabled } = readBody(req);
+    const { label, expires_in_hours, enabled, disclosure_mode } = readBody(req);
     if (enabled !== undefined && typeof enabled !== 'boolean') throw new AdminRequestError(400, 'enabled 必须为布尔值');
+    const disclosureMode = linkDisclosureMode(disclosure_mode);
     const item = await linkStore.update(id, {
       label: label === undefined ? undefined : linkLabel(label), enabled, expires_in_hours: linkExpiry(expires_in_hours),
+      disclosure_mode: disclosureMode,
     });
     if (!item) throw new AdminRequestError(404, '找不到 MCP 链接');
     if (enabled === false || isLinkExpired(item)) await onRevokeLink(id);
+    else if (disclosureMode !== undefined) await onRevokeLink(id, { onlyStaleMode: true });
     res.json({ item: linkItem(item, req) });
   });
   api.post('/links/:id/rotate', async (req, res) => {

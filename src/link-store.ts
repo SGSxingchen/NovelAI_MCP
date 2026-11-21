@@ -1,7 +1,9 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, link, lstat, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { DEFAULT_DISCLOSURE_MODE, isDisclosureMode } from './types.js';
+import type { DisclosureMode } from './types.js';
 
 const FILE_TIMEOUT = 15_000;
 const USAGE_WRITE_DELAY = 250;
@@ -19,7 +21,10 @@ export interface McpLinkRecord {
   last_used_at: string | null;
   call_count: number;
   total_anlas_spent: number;
+  disclosure_mode?: DisclosureMode;
 }
+
+export type LinkSummary = McpLinkRecord & { disclosure_mode: DisclosureMode };
 
 export interface BootstrapLink {
   label: string;
@@ -31,6 +36,12 @@ interface LinkUpdate {
   label?: string;
   enabled?: boolean;
   expires_in_hours?: number | null;
+  disclosure_mode?: DisclosureMode;
+}
+
+interface StoredLinks {
+  items: McpLinkRecord[];
+  importedBootstrapTokens: string[];
 }
 
 export async function prepareAdminDirectory(archiveDir: string): Promise<string> {
@@ -101,6 +112,7 @@ function isLinkRecord(value: unknown): value is McpLinkRecord {
   if (!isBootstrapLink(value)) return false;
   const item = value as Partial<McpLinkRecord>;
   return typeof item.id === 'string' && LINK_ID.test(item.id) && typeof item.enabled === 'boolean'
+    && (item.disclosure_mode === undefined || isDisclosureMode(item.disclosure_mode))
     && isTimestamp(item.created_at) && isTimestamp(item.updated_at)
     && (item.expires_at === null || isTimestamp(item.expires_at))
     && (item.last_used_at === null || isTimestamp(item.last_used_at))
@@ -122,8 +134,9 @@ function expiresAt(hours: number | null | undefined, now: number): string | null
 }
 
 function newRecord(
-  records: Map<string, McpLinkRecord>, input: BootstrapLink, now: number, expires_at: string | null = null,
-): McpLinkRecord {
+  records: Map<string, LinkSummary>, input: BootstrapLink & Pick<LinkUpdate, 'disclosure_mode'>,
+  now: number, expires_at: string | null = null,
+): LinkSummary {
   let id: string;
   do {
     id = `lnk_${randomBytes(6).toString('hex')}`;
@@ -132,12 +145,13 @@ function newRecord(
   return {
     id, label: input.label, token: input.token, enabled: input.enabled ?? true,
     created_at: timestamp, updated_at: timestamp, expires_at, last_used_at: null,
-    call_count: 0, total_anlas_spent: 0,
+    call_count: 0, total_anlas_spent: 0, disclosure_mode: input.disclosure_mode ?? DEFAULT_DISCLOSURE_MODE,
   };
 }
 
 export class LinkStore {
-  private records = new Map<string, McpLinkRecord>();
+  private records = new Map<string, LinkSummary>();
+  private importedBootstrapTokens = new Set<string>();
   private file?: string;
   private loading?: Promise<void>;
   private writes = Promise.resolve();
@@ -154,51 +168,70 @@ export class LinkStore {
       throw error;
     });
     if (!raw) return;
-    const data: unknown = JSON.parse(raw.toString('utf8'));
-    if (!Array.isArray(data) || !data.every(isLinkRecord)) throw new Error('MCP 链接存储格式无效');
-    const records = new Map(data.map(item => [item.id, item]));
-    if (records.size !== data.length || new Set(data.map(item => item.token)).size !== data.length) {
+    let data: Partial<StoredLinks> | McpLinkRecord[] | null;
+    try {
+      data = JSON.parse(raw.toString('utf8'));
+    } catch {
+      throw new Error('MCP 链接存储格式无效');
+    }
+    const items = Array.isArray(data) ? data : data?.items;
+    const imported = Array.isArray(data) ? [] : data?.importedBootstrapTokens;
+    if (!Array.isArray(items) || !items.every(isLinkRecord) || !Array.isArray(imported)
+      || !imported.every(hash => typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash))) {
+      throw new Error('MCP 链接存储格式无效');
+    }
+    const records = new Map(items.map(item => [item.id, { ...item, disclosure_mode: item.disclosure_mode ?? DEFAULT_DISCLOSURE_MODE }]));
+    if (records.size !== items.length || new Set(items.map(item => item.token)).size !== items.length) {
       throw new Error('MCP 链接存储包含重复记录');
     }
     this.records = records;
+    this.importedBootstrapTokens = new Set(imported);
   }
 
-  async init(bootstrapLinks: BootstrapLink[] = []): Promise<void> {
+  private ready(): Promise<void> {
     this.loading ??= this.load().catch(error => {
       this.loading = undefined;
       throw error;
     });
-    await this.loading;
-    if (bootstrapLinks.length === 0) return;
+    return this.loading;
+  }
+
+  async init(bootstrapLinks: BootstrapLink[] = []): Promise<void> {
+    if (bootstrapLinks.length === 0) return this.ready();
     if (!bootstrapLinks.every(isBootstrapLink)) throw new Error('预设 MCP 链接格式无效');
-    await this.change(records => {
+    await this.change((records, imported) => {
       const tokens = new Set([...records.values()].map(item => item.token));
       const now = Date.now();
-      let added = false;
+      let changed = false;
       for (const input of bootstrapLinks) {
+        const hash = createHash('sha256').update(input.token).digest('hex');
+        if (imported.has(hash)) continue;
+        // 记住已迁移的令牌，轮换或删除后重启时不会从环境变量恢复旧权限。
+        imported.add(hash);
+        changed = true;
         if (tokens.has(input.token)) continue;
-        const item = newRecord(records, input, now);
+        const { label, token, enabled } = input;
+        const item = newRecord(records, { label, token, enabled }, now);
         records.set(item.id, item);
         tokens.add(item.token);
-        added = true;
       }
-      return added ? true : undefined;
+      return changed ? true : undefined;
     });
   }
 
-  list(): McpLinkRecord[] {
+  list(): LinkSummary[] {
     return [...this.records.values()].map(item => ({ ...item }));
   }
 
-  getById(id: string): McpLinkRecord | undefined {
+  getById(id: string): LinkSummary | undefined {
     const item = this.records.get(id);
     return item && { ...item };
   }
 
-  findActiveByToken(token: string): McpLinkRecord | undefined {
+  findActiveByToken(token: string): LinkSummary | undefined {
     const input = Buffer.from(token);
     const now = Date.now();
-    let match: McpLinkRecord | undefined;
+    let match: LinkSummary | undefined;
     for (const item of this.records.values()) {
       const expected = Buffer.from(item.token);
       if (expected.length === input.length && timingSafeEqual(expected, input) && item.enabled && !isLinkExpired(item, now)) {
@@ -208,16 +241,16 @@ export class LinkStore {
     return match && { ...match };
   }
 
-  create({ label, expires_in_hours }: Required<Pick<LinkUpdate, 'label'>> & Pick<LinkUpdate, 'expires_in_hours'>): Promise<McpLinkRecord> {
+  create({ label, expires_in_hours, disclosure_mode }: { label: string } & Pick<LinkUpdate, 'expires_in_hours' | 'disclosure_mode'>): Promise<LinkSummary> {
     return this.change(records => {
       const now = Date.now();
-      const item = newRecord(records, { label, token: randomBytes(32).toString('base64url') }, now, expiresAt(expires_in_hours, now));
+      const item = newRecord(records, { label, token: randomBytes(32).toString('base64url'), disclosure_mode }, now, expiresAt(expires_in_hours, now));
       records.set(item.id, item);
       return { ...item };
     });
   }
 
-  update(id: string, input: LinkUpdate): Promise<McpLinkRecord | undefined> {
+  update(id: string, input: LinkUpdate): Promise<LinkSummary | undefined> {
     return this.change(records => {
       const previous = records.get(id);
       if (!previous) return undefined;
@@ -226,6 +259,7 @@ export class LinkStore {
         ...previous,
         label: input.label ?? previous.label,
         enabled: input.enabled ?? previous.enabled,
+        disclosure_mode: input.disclosure_mode ?? previous.disclosure_mode,
         expires_at: input.expires_in_hours === undefined ? previous.expires_at : expiresAt(input.expires_in_hours, now),
         updated_at: new Date(now).toISOString(),
       };
@@ -234,7 +268,7 @@ export class LinkStore {
     });
   }
 
-  rotate(id: string): Promise<{ item: McpLinkRecord; previousToken: string } | undefined> {
+  rotate(id: string): Promise<{ item: LinkSummary; previousToken: string } | undefined> {
     return this.change(records => {
       const previous = records.get(id);
       if (!previous) return undefined;
@@ -244,7 +278,7 @@ export class LinkStore {
     });
   }
 
-  delete(id: string): Promise<McpLinkRecord | undefined> {
+  delete(id: string): Promise<LinkSummary | undefined> {
     return this.change(records => {
       const item = records.get(id);
       if (item) records.delete(id);
@@ -253,7 +287,7 @@ export class LinkStore {
   }
 
   async recordUsage(id: string, anlasSpent = 0): Promise<void> {
-    await this.init();
+    await this.ready();
     await this.enqueue(() => {
       const item = this.records.get(id);
       if (!item) return;
@@ -276,7 +310,7 @@ export class LinkStore {
     this.usageTimer = undefined;
     return this.enqueue(async () => {
       if (!this.usageDirty) return;
-      await this.persist(this.records);
+      await this.persist(this.records, this.importedBootstrapTokens);
       this.usageDirty = false;
     });
   }
@@ -287,23 +321,26 @@ export class LinkStore {
     return pending;
   }
 
-  private async change<T>(work: (records: Map<string, McpLinkRecord>) => T): Promise<T> {
-    await this.init();
+  private async change<T>(work: (records: Map<string, LinkSummary>, imported: Set<string>) => T): Promise<T> {
+    await this.ready();
     return this.enqueue(async () => {
       const records = new Map(this.records);
-      const result = work(records);
+      const imported = new Set(this.importedBootstrapTokens);
+      const result = work(records, imported);
       if (result !== undefined) {
-        await this.persist(records);
+        await this.persist(records, imported);
         this.records = records;
+        this.importedBootstrapTokens = imported;
         this.usageDirty = false;
       }
       return result;
     });
   }
 
-  private async persist(records: Map<string, McpLinkRecord>): Promise<void> {
+  private async persist(records: Map<string, LinkSummary>, imported: Set<string>): Promise<void> {
     if (!this.file) return;
-    const data = JSON.stringify([...records.values()], null, 2) + '\n';
+    const snapshot: StoredLinks = { items: [...records.values()], importedBootstrapTokens: [...imported] };
+    const data = JSON.stringify(snapshot, null, 2) + '\n';
     if (Buffer.byteLength(data) > MAX_LINK_FILE_BYTES) throw new Error('MCP 链接存储超过大小限制');
     await writeAdminFile(this.file, data);
   }

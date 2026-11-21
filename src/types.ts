@@ -1,3 +1,10 @@
+export type DisclosureMode = 'progressive' | 'legacy';
+export const DEFAULT_DISCLOSURE_MODE: DisclosureMode = 'progressive';
+
+export function isDisclosureMode(value: unknown): value is DisclosureMode {
+  return value === 'progressive' || value === 'legacy';
+}
+
 export const DEFAULT_MODEL = 'nai-diffusion-5-curated';
 export const IMAGE_MODELS = [
   DEFAULT_MODEL,

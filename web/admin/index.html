@@ -256,6 +256,13 @@
             <option value="720">30 天后自动失效</option>
           </select>
         </label>
+        <label class="field">
+          <span class="field-label">工具披露模式</span>
+          <select id="newLinkDisclosure" class="select">
+            <option value="progressive" selected>渐进式按需披露（推荐：仅 3 元工具，省 85%+ 上下文）</option>
+            <option value="legacy">传统平铺兼容（一次性暴露全部 10 个工具）</option>
+          </select>
+        </label>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-close-dialog="createLinkDialog">取消</button>
           <button id="createLinkSubmit" type="submit" class="btn btn-primary">签发链接</button>

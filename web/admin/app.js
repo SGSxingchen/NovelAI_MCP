@@ -125,6 +125,7 @@ const els = {
   createLinkForm: $('createLinkForm'),
   newLinkLabel: $('newLinkLabel'),
   newLinkExpiry: $('newLinkExpiry'),
+  newLinkDisclosure: $('newLinkDisclosure'),
   createLinkSubmit: $('createLinkSubmit'),
   guideDialog: $('guideDialog'),
   guideBody: $('guideBody'),
@@ -854,7 +855,11 @@ function createLinkCard(link) {
     badge.className = 'pill pill-muted';
     badge.textContent = '已停用';
   }
-  titleWrap.append(nameEl, badge);
+  const modeBadge = document.createElement('span');
+  const isLegacy = link.disclosure_mode === 'legacy';
+  modeBadge.className = isLegacy ? 'pill pill-muted' : 'pill pill-success';
+  modeBadge.textContent = isLegacy ? '平铺兼容（10 工具）' : '渐进式 3 元工具';
+  titleWrap.append(nameEl, badge, modeBadge);
 
   const renameBtn = document.createElement('button');
   renameBtn.type = 'button';
@@ -930,6 +935,25 @@ function createLinkCard(link) {
   guideBtn.textContent = '接入指南';
   guideBtn.addEventListener('click', () => openGuideDialog(link));
   actions.appendChild(guideBtn);
+
+  const modeBtn = document.createElement('button');
+  modeBtn.type = 'button';
+  modeBtn.className = 'btn btn-secondary btn-sm';
+  modeBtn.textContent = isLegacy ? '切渐进式' : '切平铺兼容';
+  modeBtn.addEventListener('click', async () => {
+    const nextMode = isLegacy ? 'progressive' : 'legacy';
+    try {
+      await apiFetch(`/links/${encodeURIComponent(link.id)}`, {
+        method: 'PATCH',
+        body: { disclosure_mode: nextMode },
+      });
+      showToast(nextMode === 'progressive' ? '已切换为渐进式 3 元工具并刷新会话' : '已切换为传统平铺兼容模式并刷新会话');
+      await Promise.all([loadLinks(), loadOverview()]);
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  });
+  actions.appendChild(modeBtn);
 
   const toggleBtn = document.createElement('button');
   toggleBtn.type = 'button';
@@ -1145,6 +1169,7 @@ function bindEvents() {
   els.openCreateLinkBtn.addEventListener('click', () => {
     els.newLinkLabel.value = '';
     els.newLinkExpiry.value = '';
+    if (els.newLinkDisclosure) els.newLinkDisclosure.value = 'progressive';
     els.createLinkDialog.showModal();
     els.newLinkLabel.focus();
   });
@@ -1155,11 +1180,12 @@ function bindEvents() {
     if (!label) return;
     const expiresRaw = els.newLinkExpiry.value;
     const expires_in_hours = expiresRaw ? Number(expiresRaw) : null;
+    const disclosure_mode = els.newLinkDisclosure?.value || 'progressive';
     els.createLinkSubmit.disabled = true;
     try {
       const { item } = await apiFetch('/links', {
         method: 'POST',
-        body: { label, expires_in_hours },
+        body: { label, expires_in_hours, disclosure_mode },
       });
       await closeDialog(els.createLinkDialog);
       showToast(`已签发链接：${item.label}`);

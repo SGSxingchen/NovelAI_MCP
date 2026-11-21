@@ -231,6 +231,7 @@ export async function queryArchivedImages(archiveDir: string | undefined, query:
   const links = new Map<string, { label: string; timestamp: number }>();
   const hits: Array<{ id: string; timestamp: number }> = [];
   const items: ArchivedImageMetadata[] = [];
+  let cursor = offset;
   if (archiveDir) {
     const signal = AbortSignal.timeout(FS_TIMEOUT);
     const needle = q?.trim().toLowerCase();
@@ -255,8 +256,8 @@ export async function queryArchivedImages(archiveDir: string | undefined, query:
     // 排序只保留 ID 与时间，读取当前页时才保留完整元数据。
     const direction = sort === 'oldest' ? 1 : -1;
     hits.sort((a, b) => direction * (a.timestamp - b.timestamp || a.id.localeCompare(b.id)));
-    for (let index = offset; index < hits.length && items.length < limit; index++) {
-      const { id } = hits[index];
+    for (; cursor < hits.length && items.length < limit; cursor++) {
+      const { id } = hits[cursor];
       try {
         items.push(await readMetadata(await archivePath(archiveDir, id, signal), id, signal));
       } catch (error) {
@@ -266,7 +267,7 @@ export async function queryArchivedImages(archiveDir: string | undefined, query:
   }
 
   return {
-    items, total: hits.length, hasMore: offset + items.length < hits.length,
+    items, total: hits.length, hasMore: cursor < hits.length,
     facets: {
       models: [...models].sort(), tools: [...tools].sort(),
       links: [...links].map(([id, { label }]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)),
@@ -336,34 +337,37 @@ export function getOrCreateThumbnail(archiveDir: string, id: string, maxWidth = 
     if (!Number.isSafeInteger(maxWidth) || maxWidth <= 0) throw new RangeError('缩略图宽度必须为正整数');
     const signal = AbortSignal.timeout(FS_TIMEOUT);
     await archivePath(archiveDir, id, signal);
-    const cacheable = maxWidth === THUMBNAIL_WIDTH;
-    const directory = cacheable ? await thumbDirectory(archiveDir, signal) : undefined;
+    const directory = await thumbDirectory(archiveDir, signal);
+    let cached: Buffer | undefined;
+    let cachedWidth: number | undefined;
     if (directory) {
       try {
-        const cached = await readArchiveFile(join(directory, `${id}.webp`), MAX_ARCHIVED_IMAGE_BYTES, signal);
-        if (sniffImageFormat(cached)?.ext === 'webp') return cached;
+        const bytes = await readArchiveFile(join(directory, `${id}.webp`), MAX_ARCHIVED_IMAGE_BYTES, signal);
+        if (sniffImageFormat(bytes)?.ext === 'webp') {
+          cached = bytes;
+          cachedWidth = (await sharp(bytes).metadata().catch(() => undefined))?.width;
+          if (cachedWidth === maxWidth) return cached;
+        }
       } catch (error) {
         if (!isMissing(error)) throw error;
       }
     }
 
     const { buffer } = await loadArchivedImage(archiveDir, id);
-    const thumbnail = await sharp(buffer, { limitInputPixels: THUMBNAIL_MAX_PIXELS })
-      .resize({ width: maxWidth, withoutEnlargement: true }).webp({ quality: 80 })
-      .timeout({ seconds: FS_TIMEOUT / 1_000 }).toBuffer();
-    if (cacheable) {
-      const target = join(archiveDir, '.thumbs', `${id}.webp`);
-      const temporary = `${target}.${randomBytes(8).toString('hex')}.tmp`;
-      const cacheSignal = AbortSignal.timeout(FS_TIMEOUT);
-      if (!directory) await thumbDirectory(archiveDir, cacheSignal, true);
-      try {
-        await writeFile(temporary, thumbnail, { flag: 'wx', mode: 0o600, signal: cacheSignal });
-        cacheSignal.throwIfAborted();
-        await rename(temporary, target);
-      } catch (error) {
-        await rm(temporary, { force: true }).catch(() => console.error('清理缩略图临时文件失败'));
-        throw error;
-      }
+    const image = sharp(buffer, { limitInputPixels: THUMBNAIL_MAX_PIXELS }).timeout({ seconds: FS_TIMEOUT / 1_000 });
+    if (cached && cachedWidth && cachedWidth < maxWidth && (await image.metadata()).width === cachedWidth) return cached;
+    const thumbnail = await image.resize({ width: maxWidth, withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
+    const target = join(archiveDir, '.thumbs', `${id}.webp`);
+    const temporary = `${target}.${randomBytes(8).toString('hex')}.tmp`;
+    const cacheSignal = AbortSignal.timeout(FS_TIMEOUT);
+    if (!directory) await thumbDirectory(archiveDir, cacheSignal, true);
+    try {
+      await writeFile(temporary, thumbnail, { flag: 'wx', mode: 0o600, signal: cacheSignal });
+      cacheSignal.throwIfAborted();
+      await rename(temporary, target);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => console.error('清理缩略图临时文件失败'));
+      throw error;
     }
     return thumbnail;
   });

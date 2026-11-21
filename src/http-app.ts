@@ -13,13 +13,15 @@ import { registerAdminRoutes } from './admin-routes.js';
 import { IMAGE_PATH, loadArchivedImage } from './image-archive.js';
 import { LinkStore, parseBootstrapLinks } from './link-store.js';
 import type { McpLinkRecord } from './link-store.js';
-import { createNovelAIMcpServer, SERVER_NAME, SERVER_VERSION, TOOL_COUNT } from './mcp-tools.js';
+import { createNovelAIMcpServer, PROGRESSIVE_TOOL_COUNT, SERVER_NAME, SERVER_VERSION, TOOL_COUNT } from './mcp-tools.js';
 import type { NovelAIMcpServerOptions } from './mcp-tools.js';
 import { getRuntimeOptions, onShutdown, parseOrigin } from './runtime.js';
+import { DEFAULT_DISCLOSURE_MODE } from './types.js';
+import type { DisclosureMode } from './types.js';
 import { VibeCache } from './vibe-cache.js';
 
 type HttpMode = 'streamable-http' | 'sse';
-export type AppOptions = Pick<NovelAIMcpServerOptions, 'client' | 'archiveDir' | 'imageOrigin' | 'vibeCache'> & {
+export type AppOptions = Pick<NovelAIMcpServerOptions, 'client' | 'archiveDir' | 'imageOrigin' | 'vibeCache' | 'disclosureMode'> & {
   allowedOrigins?: readonly string[];
   bindHost?: string;
   publicOrigin?: URL;
@@ -58,6 +60,7 @@ const handleHttpError: ErrorRequestHandler = (error, _req, res, _next) => {
 
 function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
   const app = express();
+  const { disclosureMode: defaultDisclosureMode = DEFAULT_DISCLOSURE_MODE } = options;
   app.set('trust proxy', 1);
   const allowedOrigins = new Set(options.allowedOrigins);
   const allowAnyOrigin = allowedOrigins.has('*');
@@ -88,7 +91,10 @@ function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
   }));
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', service: SERVER_NAME, mode, version: SERVER_VERSION, tools: TOOL_COUNT });
+    res.json({
+      status: 'ok', service: SERVER_NAME, mode, version: SERVER_VERSION, tools: TOOL_COUNT,
+      disclosureMode: defaultDisclosureMode, progressiveTools: PROGRESSIVE_TOOL_COUNT, totalActions: TOOL_COUNT,
+    });
   });
 
   const { archiveDir, imageOrigin, client } = options;
@@ -120,10 +126,11 @@ function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
   }
 
   const vibeCache = options.vibeCache ?? new VibeCache(archiveDir);
-  const createServerForSession = (linkOptions?: Pick<NovelAIMcpServerOptions, 'linkContext' | 'onToolCompleted'>) => createNovelAIMcpServer({
-    client, archiveDir, imageOrigin, vibeCache, transportLabel: mode, allowLocalFiles: false, ...linkOptions,
+  const createServerForSession = (linkOptions?: Pick<NovelAIMcpServerOptions, 'disclosureMode' | 'linkContext' | 'onToolCompleted'>) => createNovelAIMcpServer({
+    client, archiveDir, imageOrigin, vibeCache, transportLabel: mode, allowLocalFiles: false,
+    disclosureMode: defaultDisclosureMode, ...linkOptions,
   });
-  return { app, createServerForSession };
+  return { app, createServerForSession, defaultDisclosureMode };
 }
 
 async function closeTransport(transport: Transport): Promise<void> {
@@ -135,10 +142,12 @@ async function closeTransport(transport: Transport): Promise<void> {
 }
 
 export function createStreamableHttpApp(options: AppOptions) {
-  const { app, createServerForSession } = createHttpApp('streamable-http', options, ['/mcp', LINK_MCP_PATH]);
+  const { app, createServerForSession, defaultDisclosureMode } = createHttpApp('streamable-http', options, ['/mcp', LINK_MCP_PATH]);
   const { archiveDir, client, imageOrigin, publicOrigin = imageOrigin } = options;
   const linkStore = options.linkStore ?? new LinkStore(archiveDir);
-  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; lastActivity: number; linkId?: string }>();
+  const sessions = new Map<string, {
+    transport: StreamableHTTPServerTransport; lastActivity: number; disclosureMode: DisclosureMode; linkId?: string;
+  }>();
   let closing = false;
 
   async function removeSession(id: string) {
@@ -149,10 +158,11 @@ export function createStreamableHttpApp(options: AppOptions) {
     }
   }
 
-  async function revokeLinkSessions(linkId: string): Promise<void> {
+  async function revokeLinkSessions(linkId: string, { onlyStaleMode = false } = {}): Promise<void> {
+    const keepMode = onlyStaleMode ? linkStore.getById(linkId)?.disclosure_mode : undefined;
     const pending: Array<Promise<void>> = [];
     for (const [id, session] of sessions) {
-      if (session.linkId === linkId) pending.push(removeSession(id));
+      if (session.linkId === linkId && session.disclosureMode !== keepMode) pending.push(removeSession(id));
     }
     await Promise.all(pending);
   }
@@ -162,7 +172,8 @@ export function createStreamableHttpApp(options: AppOptions) {
     const session = sessionId ? sessions.get(sessionId) : undefined;
     if (!sessionId) {
       rpcError(res, 400, ErrorCode.InvalidRequest, '缺少 MCP 会话 ID');
-    } else if (!session || session.transport.sessionId !== sessionId || session.linkId !== link?.id) {
+    } else if (!session || session.transport.sessionId !== sessionId || session.linkId !== link?.id
+      || session.disclosureMode !== (link?.disclosure_mode ?? defaultDisclosureMode)) {
       rpcError(res, 404, -32001, 'MCP 会话不存在或已关闭');
     } else {
       session.lastActivity = Date.now();
@@ -180,11 +191,13 @@ export function createStreamableHttpApp(options: AppOptions) {
       return;
     }
     const sessionId = randomUUID();
+    const disclosureMode = link?.disclosure_mode ?? defaultDisclosureMode;
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => sessionId });
     transport.onclose = () => { sessions.delete(sessionId); };
-    sessions.set(sessionId, { transport, lastActivity: Date.now(), linkId: link?.id });
+    sessions.set(sessionId, { transport, lastActivity: Date.now(), disclosureMode, linkId: link?.id });
     try {
       await createServerForSession(link && {
+        disclosureMode,
         linkContext: { id: link.id, label: link.label },
         onToolCompleted: ({ anlasSpent }) => {
           void linkStore.recordUsage(link.id, anlasSpent ?? 0).catch(() => console.error('记录 MCP 链接使用统计失败'));
@@ -194,10 +207,14 @@ export function createStreamableHttpApp(options: AppOptions) {
         rpcError(res, 503, ErrorCode.InternalError, 'MCP 服务正在关闭');
         return;
       }
-      if (link && (!sessions.has(sessionId) || linkStore.findActiveByToken(link.token)?.id !== link.id)) {
-        await removeSession(sessionId);
-        res.sendStatus(404);
-        return;
+      if (link) {
+        const current = linkStore.findActiveByToken(link.token);
+        if (!sessions.has(sessionId) || current?.id !== link.id
+          || (current.disclosure_mode ?? defaultDisclosureMode) !== disclosureMode) {
+          await removeSession(sessionId);
+          res.sendStatus(404);
+          return;
+        }
       }
       await transport.handleRequest(req, res, req.body);
       if (!transport.sessionId || res.statusCode !== 200) await removeSession(sessionId);
@@ -225,7 +242,7 @@ export function createStreamableHttpApp(options: AppOptions) {
     if (activeLink(req, res)) next();
   });
   dynamicMcp.post(parseMcpBody, (req, res) => {
-    // 请求体读取期间，链接可能被停用、轮换或到期。
+    // 请求体读取期间，链接可能被停用、轮换、到期或切换模式。
     const link = activeLink(req, res);
     if (link) return initializeOrForward(req, res, link);
   });
@@ -238,7 +255,9 @@ export function createStreamableHttpApp(options: AppOptions) {
 
   if (options.adminEnabled !== false) {
     const adminAuth = options.adminAuth ?? new AdminAuth({ archiveDir, adminPassword: options.adminPassword });
-    registerAdminRoutes(app, { archiveDir, client, imageOrigin, publicOrigin, linkStore, adminAuth, onRevokeLink: revokeLinkSessions });
+    registerAdminRoutes(app, {
+      archiveDir, client, imageOrigin, publicOrigin, linkStore, adminAuth, defaultDisclosureMode, onRevokeLink: revokeLinkSessions,
+    });
   }
   app.use(handleHttpError);
 

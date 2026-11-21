@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { NovelAIClient } from './novelai-client.js';
+import { DEFAULT_DISCLOSURE_MODE, isDisclosureMode } from './types.js';
 import { VibeCache } from './vibe-cache.js';
 
 export function parseOrigin(value: string, httpsOnly = false): URL | undefined {
@@ -22,6 +23,8 @@ export function parseOrigin(value: string, httpsOnly = false): URL | undefined {
 export async function getRuntimeOptions() {
   const apiKey = process.env.NOVELAI_API_KEY;
   if (!apiKey) throw new Error('必须设置 NOVELAI_API_KEY');
+  const disclosureMode = process.env.NOVELAI_MCP_DISCLOSURE_MODE || DEFAULT_DISCLOSURE_MODE;
+  if (!isDisclosureMode(disclosureMode)) throw new Error('NOVELAI_MCP_DISCLOSURE_MODE 必须为 progressive 或 legacy');
 
   const publicOrigin = process.env.MCP_IMAGE_PUBLIC_ORIGIN;
   const imageOrigin = publicOrigin ? parseOrigin(publicOrigin, true) : undefined;
@@ -41,7 +44,7 @@ export async function getRuntimeOptions() {
       timer.abort();
     }
   }
-  return { client: new NovelAIClient(apiKey), archiveDir, imageOrigin, vibeCache: new VibeCache(archiveDir) };
+  return { client: new NovelAIClient(apiKey), archiveDir, imageOrigin, vibeCache: new VibeCache(archiveDir), disclosureMode };
 }
 
 export function logFatal(error: unknown): void {

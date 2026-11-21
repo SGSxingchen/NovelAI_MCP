@@ -5,6 +5,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { Ajv } from 'ajv';
+import type { ValidateFunction } from 'ajv';
 import {
   extractArchiveId, IMAGE_PATH, listArchivedImages, loadArchivedImage, saveArchivedImage,
 } from './image-archive.js';
@@ -13,15 +14,15 @@ import {
   prepareImg2ImgImage, prepareInpaintMask, preparePreciseReferenceImage, prepareV3VibeImage, resolveImageInput,
 } from './image-input.js';
 import {
-  alignDimension, ENCODE_VIBE_MODELS, MAX_SEED, MAX_VIBE_REFERENCES, resolveGenerationModel, validateGenerationFeatures,
+  alignDimension, ENCODE_VIBE_MODELS, MAX_SEED, MAX_VIBE_REFERENCES, MODEL_REGISTRY, resolveGenerationModel, validateGenerationFeatures,
 } from './model-registry.js';
 import { DEFAULT_UPSCALE_MODEL, type NovelAIClient } from './novelai-client.js';
 import {
-  AUGMENT_REQ_TYPES, DEFAULT_MODEL, EMOTION_MOODS, IMAGE_FORMATS, IMAGE_MODELS, NOISE_SCHEDULES,
+  AUGMENT_REQ_TYPES, DEFAULT_DISCLOSURE_MODE, DEFAULT_MODEL, EMOTION_MOODS, IMAGE_FORMATS, IMAGE_MODELS, NOISE_SCHEDULES,
   PRECISE_REFERENCE_TYPES, QUALITY_PRESETS, SAMPLERS, UC_PRESET_NAMES,
 } from './types.js';
 import type {
-  Action, AugmentReqType, CharacterReferenceInput, EmotionMood, ImageExtension, ImageGenerationParams, MaskRegion,
+  Action, AugmentReqType, CharacterReferenceInput, DisclosureMode, EmotionMood, ImageExtension, ImageGenerationParams, MaskRegion,
   Model, SubscriptionSummary, SuggestTagsParams, UnpackedImage, VibeReferenceInput,
 } from './types.js';
 import {
@@ -35,6 +36,7 @@ export const SERVER_NAME = 'novelai-mcp-server';
 export const SERVER_VERSION = '2.0.0';
 
 const DEFAULT_NEGATIVE_PROMPT = 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
+const DEFAULT_GENERATION_SIZE = { width: 832, height: 1216 } as const;
 const MAX_DIMENSION = 49152;
 const MAX_GENERATION_PIXELS = 3145728;
 const UPSCALE_MAX_PIXELS = 1048576;
@@ -149,8 +151,8 @@ function tool(
 const TOOLS = [
   tool('generate_image', `按提示词画图，默认使用 V5 Curated。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...generationFields,
-    width: { ...dimension('图片宽度（像素），对齐到 64 的倍数，默认 832。Opus 免费上限为 width × height ≤ 1,048,576（如 832×1216、1216×832、1024×1024）。'), default: 832 },
-    height: { ...dimension('图片高度（像素），对齐到 64 的倍数，默认 1216。Opus 免费上限为 width × height ≤ 1,048,576。'), default: 1216 },
+    width: { ...dimension('图片宽度（像素），对齐到 64 的倍数，默认 832。Opus 免费上限为 width × height ≤ 1,048,576（如 832×1216、1216×832、1024×1024）。'), default: DEFAULT_GENERATION_SIZE.width },
+    height: { ...dimension('图片高度（像素），对齐到 64 的倍数，默认 1216。Opus 免费上限为 width × height ≤ 1,048,576。'), default: DEFAULT_GENERATION_SIZE.height },
   }, ['base_prompt']),
   tool('img2img', `用提示词重绘源图，strength 越大改动越多。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
@@ -220,8 +222,81 @@ const TOOLS = [
 
 export const TOOL_COUNT = TOOLS.length;
 
+const DISCOVERY_MODULES = [
+  {
+    module: 'generate', summary: '出图与编辑', actions: [
+      { name: 'generate_image', summary: '按提示词生图' },
+      { name: 'img2img', summary: '用提示词重绘源图' },
+      { name: 'inpaint_image', summary: '局部重绘指定区域' },
+    ],
+  },
+  {
+    module: 'enhance', summary: '导演工具、放大与 Vibe 编码', actions: [
+      { name: 'augment_image', summary: '导演工具，支持去背景、线稿和着色等' },
+      { name: 'upscale_image', summary: '4 倍放大图片' },
+      { name: 'encode_vibe', summary: '编码可复用的 Vibe 风格参考' },
+    ],
+  },
+  {
+    module: 'assist', summary: '标签联想、订阅额度与历史归档', actions: [
+      { name: 'suggest_tags', summary: '联想提示词标签' },
+      { name: 'get_subscription', summary: '查订阅与额度' },
+      { name: 'list_archived_images', summary: '查历史归档' },
+    ],
+  },
+  {
+    module: 'guides', summary: 'V5 风格工程、计费与模型指南', actions: [
+      { name: 'get_v5_stylist_guide', summary: '读取 V5 风格工程指南' },
+    ],
+  },
+];
+
+const GUIDES = [
+  { name: 'v5_stylist', summary: 'V5 风格工程' },
+  { name: 'cost_policy', summary: 'Anlas 与 V5 额度计费' },
+  { name: 'models', summary: '支持模型与默认参数' },
+] as const;
+
+const PROGRESSIVE_TOOLS = [
+  tool('nai_discover', '浏览或搜索 NovelAI 动作和指南。', {
+    module: choice('筛选模块。', DISCOVERY_MODULES.map(entry => entry.module)),
+    query: textField('按关键词搜索。'),
+  }, [], true, false),
+  tool('nai_describe', '查看动作参数或读取指南。', {
+    actions: { type: 'array', items: { type: 'string' }, maxItems: TOOL_COUNT },
+    guide: choice('选择指南。', GUIDES.map(entry => entry.name)),
+    topic: choice('V5 指南章节。', V5_STYLIST_TOPICS),
+    blueprint: choice('V5 风格蓝图。', V5_STYLE_BLUEPRINT_IDS),
+  }, [], true, false),
+  tool('nai_execute', '执行指定动作，可能消耗 Anlas。', {
+    action: { type: 'string', minLength: 1 },
+    params: { type: 'object' },
+  }, ['action']),
+];
+
+export const PROGRESSIVE_TOOL_COUNT = PROGRESSIVE_TOOLS.length;
+
+export function getDisclosureMetrics() {
+  const progressiveBytes = Buffer.byteLength(JSON.stringify({ tools: PROGRESSIVE_TOOLS }));
+  const legacyBytes = Buffer.byteLength(JSON.stringify({ tools: TOOLS }));
+  return {
+    progressiveTools: PROGRESSIVE_TOOL_COUNT, legacyTools: TOOL_COUNT, progressiveBytes, legacyBytes,
+    estimatedSavedPercent: (1 - progressiveBytes / legacyBytes) * 100,
+  };
+}
+
 const validator = new Ajv({ ownProperties: true });
-const toolValidators = new Map(TOOLS.map(definition => [definition.name, validator.compile(definition.inputSchema)]));
+const actionsByName = new Map(TOOLS.map(definition => [definition.name, {
+  definition, validate: validator.compile(definition.inputSchema),
+}]));
+const progressiveValidators = new Map(PROGRESSIVE_TOOLS.map(definition => [definition.name, validator.compile(definition.inputSchema)]));
+
+interface DescribeArguments {
+  actions?: string[];
+  guide?: (typeof GUIDES)[number]['name'];
+  topic?: V5StylistTopic;
+  blueprint?: V5StyleBlueprintId;
+}
 
 interface GenerationArguments {
   base_prompt: string;
@@ -282,6 +357,7 @@ export interface NovelAIMcpServerOptions {
   allowLocalFiles?: boolean;
   transportLabel?: string;
   vibeCache?: VibeCache;
+  disclosureMode?: DisclosureMode;
   linkContext?: { id: string; label: string };
   onToolCompleted?: (event: { tool: string; anlasSpent?: number }) => void;
 }
@@ -351,6 +427,63 @@ function asJson(value: object): CallToolResult {
   return { content: [asText(JSON.stringify(value))] };
 }
 
+function validateToolArguments(validate: ValidateFunction | undefined, args: Record<string, unknown>): void {
+  if (!validate) throw new Error('未知工具');
+  if (!validate(args)) {
+    const fields = validate.errors?.map(error => error.instancePath.replace(/^\//, '') ||
+      (error.params.missingProperty as string | undefined) || '输入');
+    throw new Error(`请检查工具参数 ${fields?.join('、')} 的类型、范围或必填项`);
+  }
+}
+
+function discoverTools({ module, query }: { module?: string; query?: string }): CallToolResult {
+  const keyword = query?.trim().toLowerCase();
+  const modules = DISCOVERY_MODULES.flatMap(entry => {
+    if (module && module !== entry.module) return [];
+    const matches = ({ name, summary }: { name: string; summary: string }) => (
+      !keyword || keyword === entry.module || keyword === entry.summary.toLowerCase()
+      || `${name} ${summary}`.toLowerCase().includes(keyword)
+    );
+    const actions = entry.actions.filter(matches);
+    const guides = entry.module === 'guides' ? GUIDES.filter(matches) : [];
+    if (!actions.length && !guides.length) return [];
+    return [{ module: entry.module, summary: entry.summary, actions, ...(guides.length ? { guides } : {}) }];
+  });
+  return asJson({ modules });
+}
+
+function describeTools({ actions = [], guide, topic, blueprint }: DescribeArguments): CallToolResult {
+  const descriptions = [...new Set(actions)].map(name => {
+    const action = actionsByName.get(name);
+    if (!action) throw new Error('未知动作，请先调用 nai_discover');
+    const { definition } = action;
+    return {
+      name,
+      description: definition.description?.replace(V5_STYLIST_HINT, '').replace(COST_POLICY, ''),
+      inputSchema: definition.inputSchema,
+    };
+  });
+  const content: CallToolResult['content'] = [];
+  if (guide === undefined || descriptions.length > 0) content.push(asText(JSON.stringify({ actions: descriptions })));
+  switch (guide) {
+    case 'v5_stylist':
+      content.push(asText(renderV5StylistGuide({ topic, blueprint })));
+      break;
+    case 'cost_policy':
+      content.push(asText(COST_POLICY));
+      break;
+    case 'models': {
+      const models = IMAGE_MODELS.map(model => {
+        const { defaultSteps, defaultScale, inpaintingModel } = MODEL_REGISTRY[model];
+        return { model, steps: defaultSteps, scale: defaultScale, inpaintingModel };
+      });
+      content.push(asText(JSON.stringify({ defaultModel: DEFAULT_MODEL, generationSize: DEFAULT_GENERATION_SIZE, models })));
+      break;
+    }
+  }
+  return { content };
+}
+
 function checkGenerationSize(width: number, height: number): void {
   if (width * height > MAX_GENERATION_PIXELS) {
     throw new Error('图片最多支持 3,145,728 像素，请缩小宽度或高度');
@@ -415,13 +548,17 @@ function summarizeUsageCost(
 }
 
 export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server {
-  const { client, archiveDir, imageOrigin, transportLabel = 'MCP', linkContext, onToolCompleted } = options;
+  const {
+    client, archiveDir, imageOrigin, transportLabel = 'MCP', linkContext, onToolCompleted, disclosureMode = DEFAULT_DISCLOSURE_MODE,
+  } = options;
   const vibeCache = options.vibeCache ?? new VibeCache(archiveDir);
   const readImage = (input: string) => resolveImageInput(input, options);
 
   const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, {
     capabilities: { tools: {}, prompts: {}, resources: {} },
-    instructions: '使用 NovelAI 生成或编辑图片，结果回执会返回图片链接、archive image_id 与本次实际消耗的 Anlas。设计 NovelAI V5 独特画风、去 AI 塑料感、阶梯画师配权或排查风格漂移前，可先免费调用 get_v5_stylist_guide（或读取资源 novelai://skills/v5-stylist）。',
+    instructions: disclosureMode === 'legacy'
+      ? '使用 NovelAI 生成或编辑图片，结果回执会返回图片链接、archive image_id 与本次实际消耗的 Anlas。设计 NovelAI V5 独特画风、去 AI 塑料感、阶梯画师配权或排查风格漂移前，可先免费调用 get_v5_stylist_guide（或读取资源 novelai://skills/v5-stylist）。'
+      : '用 nai_discover 找动作，nai_describe 查参数、计费或 V5 风格指南，再用 nai_execute 执行动作。出图回执包含图片链接、归档 ID 与实际 Anlas 消耗。',
   });
 
   async function captureSubscription(): Promise<SubscriptionSummary | undefined> {
@@ -519,8 +656,8 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
 
     const source = action !== 'generate' && args.source_image ? await readImage(args.source_image) : undefined;
     const sourceSize = source ? await getImageDimensions(source) : undefined;
-    const width = alignDimension(args.width ?? sourceSize?.width ?? 832);
-    const height = alignDimension(args.height ?? sourceSize?.height ?? 1216);
+    const width = alignDimension(args.width ?? sourceSize?.width ?? DEFAULT_GENERATION_SIZE.width);
+    const height = alignDimension(args.height ?? sourceSize?.height ?? DEFAULT_GENERATION_SIZE.height);
     checkGenerationSize(width, height);
     params.width = width;
     params.height = height;
@@ -690,19 +827,21 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     return result;
   }
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: disclosureMode === 'legacy' ? TOOLS : PROGRESSIVE_TOOLS }));
   server.setRequestHandler(CallToolRequestSchema, async request => {
-    const { name } = request.params;
+    let { name } = request.params;
     try {
-      const args = { ...request.params.arguments };
-      if (name === 'generate_image') normalizeLegacyGenerateArguments(args);
-      const validate = toolValidators.get(name);
-      if (!validate) throw new Error('未知工具');
-      if (!validate(args)) {
-        const fields = validate.errors?.map(error => error.instancePath.replace(/^\//, '') ||
-          (error.params.missingProperty as string | undefined) || '输入');
-        throw new Error(`请检查工具参数 ${fields?.join('、')} 的类型、范围或必填项`);
+      let args = { ...request.params.arguments };
+      if (disclosureMode !== 'legacy') {
+        validateToolArguments(progressiveValidators.get(name), args);
+        if (name === 'nai_discover') return discoverTools(args);
+        if (name === 'nai_describe') return describeTools(args);
+        const { action, params } = args as { action: string; params?: Record<string, unknown> };
+        name = action;
+        args = { ...params };
       }
+      if (name === 'generate_image') normalizeLegacyGenerateArguments(args);
+      validateToolArguments(actionsByName.get(name)?.validate, args);
       switch (name) {
         case 'generate_image':
           return await generate(name, args as unknown as GenerationArguments, 'generate');
@@ -744,7 +883,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       }
     } catch (error) {
       const code = (error as NodeJS.ErrnoException)?.code;
-      console.error(`[${transportLabel}] 工具执行失败`, TOOLS.some(definition => definition.name === name) ? name : '未知工具');
+      console.error(`[${transportLabel}] 工具执行失败`, actionsByName.has(name) || progressiveValidators.has(name) ? name : '未知工具');
       const message = code === 'ENOENT' ? '找不到指定的图片或归档记录'
         : code ? '读取图片或归档时遇到系统错误'
           : error instanceof Error ? error.message : '工具执行失败';

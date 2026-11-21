@@ -20,6 +20,7 @@ const toolNames = [
   'augment_image', 'encode_vibe', 'generate_image', 'get_subscription', 'get_v5_stylist_guide',
   'img2img', 'inpaint_image', 'list_archived_images', 'suggest_tags', 'upscale_image',
 ];
+const progressiveToolNames = ['nai_discover', 'nai_describe', 'nai_execute'];
 const clientInfo = { name: 'novelai-mcp-test', version: '1.0.0' };
 const publicOrigin = new URL('https://images.example.test');
 const protocolVersion = '2025-11-25';
@@ -126,7 +127,7 @@ function oversizedRequest(url, headers) {
   });
 }
 
-test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格式回执和短链下载', { timeout: 40_000 }, async t => {
+test('Streamable HTTP 默认渐进式披露，完成 Gemini 握手、多格式回执和短链下载', { timeout: 40_000 }, async t => {
   const source = await sharp(randomBytes(256 * 256 * 3), {
     raw: { width: 256, height: 256, channels: 3 },
   }).png().toBuffer();
@@ -148,7 +149,10 @@ test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格�
   const mcp = new URL('/mcp', serverUrl);
 
   const health = await (await get(new URL('/health', serverUrl))).json();
-  assert.deepEqual(health, { status: 'ok', service: 'novelai-mcp-server', mode: 'streamable-http', version: '2.0.0', tools: 10 });
+  assert.deepEqual(health, {
+    status: 'ok', service: 'novelai-mcp-server', mode: 'streamable-http', version: '2.0.0', tools: 10,
+    disclosureMode: 'progressive', progressiveTools: 3, totalActions: 10,
+  });
   const requestBody = { id: 1, method: 'initialize', params: { protocolVersion, capabilities: {}, clientInfo } };
   const invalidOrigin = await postRpc(mcp, requestBody, { Origin: 'https://untrusted.example.test' });
   assert.equal(invalidOrigin.status, 403);
@@ -181,7 +185,7 @@ test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格�
   const list = await readResult(await postRpc(mcp, { id: 2, method: 'tools/list' }, {
     ...headers, Origin: publicOrigin.origin,
   }));
-  assert.deepEqual(list.tools.map(tool => tool.name).sort(), toolNames);
+  assert.deepEqual(list.tools.map(tool => tool.name), progressiveToolNames);
   for (const tool of list.tools) {
     assert.equal(tool.inputSchema.type, 'object');
     assert.doesNotMatch(JSON.stringify(tool.inputSchema), /"(oneOf|anyOf)"\s*:/);
@@ -203,8 +207,11 @@ test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格�
     id: 3,
     method: 'tools/call',
     params: {
-      name: 'img2img',
-      arguments: { source_image: `data:image/png;base64,${source.toString('base64')}`, base_prompt: 'forest', n_samples: 3, seed: 123 },
+      name: 'nai_execute',
+      arguments: {
+        action: 'img2img',
+        params: { source_image: `data:image/png;base64,${source.toString('base64')}`, base_prompt: 'forest', n_samples: 3, seed: 123 },
+      },
     },
   }, headers));
   assert.notEqual(result.isError, true, result.content[0]?.text);
@@ -249,7 +256,10 @@ test('Streamable HTTP 完成 Gemini 协议握手、九个工具发现、多格�
   const localInput = await readResult(await postRpc(mcp, {
     id: 4,
     method: 'tools/call',
-    params: { name: 'img2img', arguments: { source_image: './local-only.png', base_prompt: 'forest' } },
+    params: {
+      name: 'nai_execute',
+      arguments: { action: 'img2img', params: { source_image: './local-only.png', base_prompt: 'forest' } },
+    },
   }, headers));
   assert.equal(localInput.isError, true);
   assert.match(localInput.content[0].text, /本地/);
@@ -280,7 +290,7 @@ test('旧版 SSE 保留 /sse 和 /message，复用工具、归档及图片路由
   const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#aa5500' } }).png().toBuffer();
   const archiveDir = await archiveFixture(t, png);
   const upstream = await mockNovelAI(t, png, 'image/png');
-  const { app, close } = createSseApp({ client: upstream.client, archiveDir, imageOrigin: publicOrigin });
+  const { app, close } = createSseApp({ client: upstream.client, archiveDir, imageOrigin: publicOrigin, disclosureMode: 'legacy' });
   const serverUrl = await listen(t, app, close);
   const client = new Client(clientInfo);
   const transport = new SSEClientTransport(new URL('/sse', serverUrl));
@@ -299,21 +309,26 @@ test('旧版 SSE 保留 /sse 和 /message，复用工具、归档及图片路由
   }
 });
 
-test('stdio 入口返回相同的工具列表和版本', { timeout: 10_000 }, async () => {
-  const client = new Client(clientInfo);
-  try {
-    await client.connect(new StdioClientTransport({
-      command: process.execPath,
-      args: [stdioEntry],
-      env: stdioEnv,
-      stderr: 'pipe',
-    }), { timeout: 5_000 });
-    assert.equal(client.getServerVersion().version, '2.0.0');
-    assert.deepEqual((await client.listTools()).tools.map(tool => tool.name).sort(), toolNames);
-  } finally {
-    await client.close();
-  }
-});
+for (const disclosureMode of ['progressive', 'legacy']) {
+  test(`stdio 入口按环境变量返回工具列表（${disclosureMode}）`, { timeout: 10_000 }, async () => {
+    const client = new Client(clientInfo);
+    const env = disclosureMode === 'legacy' ? { ...stdioEnv, NOVELAI_MCP_DISCLOSURE_MODE: 'legacy' } : stdioEnv;
+    try {
+      await client.connect(new StdioClientTransport({
+        command: process.execPath,
+        args: [stdioEntry],
+        env,
+        stderr: 'pipe',
+      }), { timeout: 5_000 });
+      assert.equal(client.getServerVersion().version, '2.0.0');
+      const names = (await client.listTools()).tools.map(tool => tool.name);
+      if (disclosureMode === 'legacy') assert.deepEqual(names.sort(), toolNames);
+      else assert.deepEqual(names, progressiveToolNames);
+    } finally {
+      await client.close();
+    }
+  });
+}
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   test(`stdio 在 ${signal} 后有序退出`, { skip: process.platform === 'win32', timeout: 10_000 }, async () => {

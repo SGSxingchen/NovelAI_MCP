@@ -74,7 +74,7 @@ export class AdminAuth {
   }
 
   private async load(): Promise<{ hash: Buffer; secret: Buffer }> {
-    let password = this.options.adminPassword || process.env.MCP_ADMIN_PASSWORD;
+    let password = process.env.MCP_ADMIN_PASSWORD || this.options.adminPassword;
     if (!this.options.archiveDir) {
       return { hash: passwordHash(password || randomBytes(24).toString('base64url')), secret: randomBytes(32) };
     }
@@ -182,10 +182,10 @@ export class AdminAuth {
       return;
     }
 
-    this.failures.delete(ip);
     const sid = randomBytes(24).toString('base64url');
     const exp = now + SESSION_TTL;
     await this.changeSessions(sessions => sessions.set(sid, exp));
+    this.failures.delete(ip);
     const payload = Buffer.from(JSON.stringify({ sid, exp }));
     const signature = createHmac('sha256', secret).update(payload).digest('base64url');
     res.cookie(COOKIE_NAME, `${payload.toString('base64url')}.${signature}`, {

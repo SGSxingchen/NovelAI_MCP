@@ -5,14 +5,15 @@ import { createNovelAIMcpServer } from './mcp-tools.js';
 import { getRuntimeOptions, logFatal, onShutdown } from './runtime.js';
 
 async function main(): Promise<void> {
+  const options = await getRuntimeOptions();
   const server = createNovelAIMcpServer({
-    ...await getRuntimeOptions(),
+    ...options,
     allowLocalFiles: true,
     transportLabel: 'stdio',
   });
   await server.connect(new StdioServerTransport());
   onShutdown(() => server.close());
-  console.error('NovelAI MCP 已启动，使用标准输入输出');
+  console.error(`NovelAI MCP 已启动，使用标准输入输出，披露模式 ${options.disclosureMode}`);
 }
 
 main().catch(logFatal);

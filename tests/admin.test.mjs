@@ -12,8 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { crc32 } from 'node:zlib';
 import sharp from 'sharp';
 import { createStreamableHttpApp } from '../dist/http-app.js';
-import { saveArchivedImage, saveImage } from '../dist/image-archive.js';
+import { getOrCreateThumbnail, saveArchivedImage, saveImage } from '../dist/image-archive.js';
 import { LinkStore, parseBootstrapLinks } from '../dist/link-store.js';
+import { getDisclosureMetrics } from '../dist/mcp-tools.js';
 import { NovelAIClient } from '../dist/novelai-client.js';
 
 const adminPassword = 'local-admin-test-password';
@@ -22,6 +23,14 @@ const apiBase = '/novelai-admin/api';
 const publicOrigin = new URL('https://mcp.example.test');
 const imageOrigin = new URL('https://images.example.test');
 const httpEntry = fileURLToPath(new URL('../dist/streamable-http-server.js', import.meta.url));
+const { legacyTools: totalActions, ...disclosureMetrics } = getDisclosureMetrics();
+const defaultDisclosure = { defaultMode: 'progressive', totalActions, ...disclosureMetrics };
+
+const configuredPassword = process.env.MCP_ADMIN_PASSWORD;
+delete process.env.MCP_ADMIN_PASSWORD;
+test.after(() => {
+  if (configuredPassword !== undefined) process.env.MCP_ADMIN_PASSWORD = configuredPassword;
+});
 
 async function tempArchive(t) {
   const directory = await mkdtemp(join(tmpdir(), 'novelai-admin-test-'));
@@ -51,12 +60,13 @@ function startApp(t, options = {}) {
   return listen(t, app, close);
 }
 
-async function startConfiguredServer(t, archiveDir, bootstrapLinks) {
+async function startConfiguredServer(t, archiveDir, bootstrapLinks, disclosureMode = '') {
   const child = spawn(process.execPath, [httpEntry], {
     env: {
       ...process.env, NOVELAI_API_KEY: 'local-test-token', MCP_BIND_HOST: '127.0.0.1', PORT: '0',
       MCP_ADMIN_PASSWORD: adminPassword, MCP_IMAGE_ARCHIVE_DIR: archiveDir, MCP_PUBLIC_ORIGIN: publicOrigin.origin,
       MCP_IMAGE_PUBLIC_ORIGIN: '', MCP_ALLOWED_ORIGINS: '', MCP_BOOTSTRAP_LINKS: JSON.stringify(bootstrapLinks),
+      NOVELAI_MCP_DISCLOSURE_MODE: disclosureMode,
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
@@ -167,6 +177,18 @@ function createImage(width, height) {
   return sharp({ create: { width, height, channels: 3, background: '#304870' } });
 }
 
+async function writeHistoricalLink(archiveDir) {
+  const item = {
+    id: 'lnk_123456789abc', label: '历史链接', token: 'old-link-disclosure', enabled: true,
+    created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z',
+    expires_at: null, last_used_at: null, call_count: 2, total_anlas_spent: 7,
+  };
+  const directory = join(archiveDir, '.admin');
+  await mkdir(directory, { mode: 0o700 });
+  await writeFile(join(directory, 'links.json'), JSON.stringify([item]), { mode: 0o600 });
+  return item;
+}
+
 test('管理台鉴权按 IP 限流、签发安全 Cookie 并立即吊销登出会话', { timeout: 20_000 }, async t => {
   const { origin } = await startApp(t);
   const redirect = await request(origin, '/novelai-admin', { redirect: 'manual' });
@@ -203,6 +225,7 @@ test('管理台鉴权按 IP 限流、签发安全 Cookie 并立即吊销登出�
   assert.deepEqual(await json(api(origin, '/overview', { cookie })), {
     archive: { totalCount: 0, totalBytes: 0, models: {}, links: {} },
     links: { total: 0, enabled: 0, totalCalls: 0, totalAnlasSpent: 0 }, publicOrigin: null,
+    disclosure: defaultDisclosure,
   });
 
   const logout = await api(origin, '/auth/logout', { method: 'POST', cookie });
@@ -210,13 +233,17 @@ test('管理台鉴权按 IP 限流、签发安全 Cookie 并立即吊销登出�
   assert.match(logout.headers.get('set-cookie'), /^novelai_admin_session=; Max-Age=0;/);
   await json(api(origin, '/overview', { cookie }), 401);
   assert.equal((await json(api(origin, '/auth/status', { cookie: local.cookie }))).authenticated, true);
+
+  const now = Date.now();
+  const time = t.mock.method(Date, 'now', () => now + 15 * 60 * 1_000 + 1);
+  await signIn(origin, adminPassword, blockedIp);
+  time.mock.restore();
+  t.mock.method(Date, 'now', () => now + 7 * 24 * 60 * 60 * 1_000 + 1);
+  assert.equal((await json(api(origin, '/auth/status', { cookie: local.cookie }))).authenticated, false);
 });
 
 test('归档模式安全生成管理员凭据，重启保留有效会话和登出记录', { timeout: 20_000 }, async t => {
   const archiveDir = await tempArchive(t);
-  const originalPassword = process.env.MCP_ADMIN_PASSWORD;
-  delete process.env.MCP_ADMIN_PASSWORD;
-  t.after(() => { if (originalPassword !== undefined) process.env.MCP_ADMIN_PASSWORD = originalPassword; });
   const logs = [];
   t.mock.method(console, 'error', (...values) => logs.push(values.join(' ')));
   const first = await startApp(t, { archiveDir, adminPassword: undefined, publicOrigin });
@@ -373,13 +400,13 @@ test('动态链接出图保留来源，成功调用累计用量并串行持久�
 
   const path = mcpPath(item.token);
   const session = await openMcp(origin, path);
-  const call = (id, name, args) => rpcResult(postMcp(origin, path, {
-    id, method: 'tools/call', params: { name, arguments: args },
+  const execute = (id, action, params) => rpcResult(postMcp(origin, path, {
+    id, method: 'tools/call', params: { name: 'nai_execute', arguments: { action, params } },
   }, session));
-  const invalid = await call(2, 'generate_image', {});
+  const invalid = await execute(2, 'generate_image', {});
   assert.equal(invalid.isError, true);
   assert.equal((await json(api(origin, '/links', { cookie }))).items[0].call_count, 0);
-  const result = await call(3, 'generate_image', {
+  const result = await execute(3, 'generate_image', {
     base_prompt: 'Blue stairs in the rain', width: 64, height: 64, model: 'nai-diffusion-5-curated',
   });
   assert.equal(result.isError, undefined);
@@ -396,7 +423,7 @@ test('动态链接出图保留来源，成功调用累计用量并串行持久�
   assert.equal(archived.anlas_spent, 37);
   assert.deepEqual(await readFile(join(archiveDir, imageId, 'image.png')), png);
 
-  const simultaneous = await Promise.all([4, 5, 6].map(id => call(id, 'get_v5_stylist_guide', { topic: 'workflow' })));
+  const simultaneous = await Promise.all([4, 5, 6].map(id => execute(id, 'get_v5_stylist_guide', { topic: 'workflow' })));
   for (const outcome of simultaneous) assert.equal(outcome.isError, undefined, outcome.content[0].text);
   const current = (await json(api(origin, '/links', { cookie }))).items[0];
   assert.equal(current.call_count, 4);
@@ -405,6 +432,7 @@ test('动态链接出图保留来源，成功调用累计用量并串行持久�
   assert.deepEqual(await json(api(origin, '/overview', { cookie })), {
     archive: { totalCount: 1, totalBytes: png.length, models: { [archived.model]: 1 }, links: { [item.id]: 1 } },
     links: { total: 1, enabled: 1, totalCalls: 4, totalAnlasSpent: 37 }, publicOrigin: null,
+    disclosure: defaultDisclosure,
   });
   assert.equal((await json(api(origin, '/subscription', { cookie }))).summary.totalAnlas, 83);
   subscriptionUnavailable = true;
@@ -427,6 +455,80 @@ test('动态链接出图保留来源，成功调用累计用量并串行持久�
   assert.equal(reloaded.getById(item.id).last_used_at, current.last_used_at);
   assert.equal(reloaded.getById(item.id).total_anlas_spent, 37);
   assert.equal((await readdir(join(archiveDir, '.admin'))).some(name => name.endsWith('.tmp')), false);
+});
+
+test('独立设置链接披露模式，切换只断开该链接旧会话', { timeout: 20_000 }, async t => {
+  const archiveDir = await tempArchive(t);
+  const oldLink = await writeHistoricalLink(archiveDir);
+  const origin = await startConfiguredServer(t, archiveDir, [], 'legacy');
+  const { cookie } = await signIn(origin);
+  const health = await json(request(origin, '/health'));
+  assert.equal(health.disclosureMode, 'legacy');
+  assert.equal(health.progressiveTools, 3);
+  assert.equal(health.totalActions, 10);
+  assert.deepEqual((await json(api(origin, '/overview', { cookie }))).disclosure, { ...defaultDisclosure, defaultMode: 'legacy' });
+
+  const list = { id: 2, method: 'tools/list' };
+  const names = async (path, session) => (await rpcResult(postMcp(origin, path, list, session))).tools.map(tool => tool.name);
+  const localSession = await openMcp(origin, '/mcp');
+  const legacyTools = await names('/mcp', localSession);
+  assert.equal(legacyTools.length, 10);
+  assert.ok(legacyTools.includes('generate_image'));
+  assert.ok(legacyTools.includes('get_v5_stylist_guide'));
+  const progressiveTools = ['nai_discover', 'nai_describe', 'nai_execute'];
+  const oldPath = mcpPath(oldLink.token);
+  assert.deepEqual(await names(oldPath, await openMcp(origin, oldPath)), progressiveTools);
+  assert.equal((await json(api(origin, '/links', { cookie }))).items[0].disclosure_mode, 'progressive');
+
+  const create = body => api(origin, '/links', { method: 'POST', body, cookie });
+  await json(create({ label: '无效模式', disclosure_mode: 'unknown' }), 400);
+  const { item: defaultLink } = await json(create({ label: '默认链接' }), 201);
+  assert.equal(defaultLink.disclosure_mode, 'progressive');
+  const { item } = await json(create({ label: '兼容链接', disclosure_mode: 'legacy' }), 201);
+  assert.equal(item.disclosure_mode, 'legacy');
+  const path = mcpPath(item.token);
+  const session = await openMcp(origin, path);
+  assert.deepEqual(await names(path, session), legacyTools);
+
+  const patch = body => api(origin, `/links/${item.id}`, { method: 'PATCH', body, cookie });
+  await json(patch({ disclosure_mode: null }), 400);
+  assert.equal((await json(patch({ label: '更名' }))).item.disclosure_mode, 'legacy');
+  await json(patch({ disclosure_mode: 'legacy' }));
+  assert.deepEqual(await names(path, session), legacyTools);
+
+  const stream = await request(origin, path, { headers: { ...session, Accept: 'text/event-stream' } });
+  assert.equal(stream.status, 200);
+  const { item: changed } = await json(patch({ label: '已切换', disclosure_mode: 'progressive' }));
+  assert.equal(changed.token, item.token);
+  assert.equal(changed.disclosure_mode, 'progressive');
+  await stream.text();
+  await expectStatus(postMcp(origin, path, list, session), 404);
+  const newSession = await openMcp(origin, path);
+  assert.deepEqual(await names(path, newSession), progressiveTools);
+  assert.deepEqual(await names('/mcp', localSession), legacyTools);
+
+  assert.equal((await json(patch({ disclosure_mode: 'legacy' }))).item.disclosure_mode, 'legacy');
+  await expectStatus(postMcp(origin, path, list, newSession), 404);
+  assert.deepEqual(await names(path, await openMcp(origin, path)), legacyTools);
+});
+
+test('历史链接缺省模式标准化，更新和重载保留模式及历史统计', { timeout: 12_000 }, async t => {
+  const archiveDir = await tempArchive(t);
+  const oldLink = await writeHistoricalLink(archiveDir);
+  const store = new LinkStore(archiveDir);
+  await store.init();
+  assert.deepEqual(store.list(), [{ ...oldLink, disclosure_mode: 'progressive' }]);
+  assert.equal(store.findActiveByToken(oldLink.token).disclosure_mode, 'progressive');
+
+  const changed = await store.update(oldLink.id, { label: '已更名', disclosure_mode: 'legacy' });
+  assert.equal(changed.disclosure_mode, 'legacy');
+  assert.equal((await store.create({ label: '缺省链接' })).disclosure_mode, 'progressive');
+  assert.equal((await store.create({ label: '明确回退', disclosure_mode: 'legacy' })).disclosure_mode, 'legacy');
+  const reopened = new LinkStore(archiveDir);
+  await reopened.init();
+  assert.deepEqual(reopened.list(), store.list());
+  const reloaded = reopened.getById(oldLink.id);
+  assert.deepEqual([reloaded.label, reloaded.disclosure_mode, reloaded.call_count, reloaded.total_anlas_spent], ['已更名', 'legacy', 2, 7]);
 });
 
 async function setCreatedAt(directory, id, created_at) {
@@ -506,6 +608,7 @@ test('图库接口查询旧版和新图、保护原图、缓存缩略图并安�
   const empty = await read('/images?link_id=missing');
   assert.deepEqual(empty, { items: [], total: 0, hasMore: false, facets: firstPage.facets });
   await json(api(origin, '/images?limit=-1', { cookie }), 400);
+  assert.equal((await read('/images?limit=201')).items.length, 3);
   await json(api(origin, '/images?sort=invalid', { cookie }), 400);
   assert.deepEqual((await read('/overview')).archive, {
     totalCount: 3, totalBytes: png.length + jpg.length + oldPng.length,
@@ -540,6 +643,11 @@ test('图库接口查询旧版和新图、保护原图、缓存缩略图并安�
   assert.deepEqual(Buffer.from(await hit.arrayBuffer()), thumbnailBytes);
   const afterHit = await stat(cachedPath);
   assert.deepEqual([afterHit.ino, afterHit.mtimeMs], [cached.ino, cached.mtimeMs]);
+  const smaller = await getOrCreateThumbnail(archiveDir, id, 256);
+  assert.equal((await sharp(smaller).metadata()).width, 256);
+  assert.deepEqual(await readFile(cachedPath), smaller);
+  const defaultAgain = await api(origin, `${imagePath}/thumb`, { cookie });
+  assert.deepEqual(Buffer.from(await defaultAgain.arrayBuffer()), thumbnailBytes);
 
   const raw = await api(origin, `${imagePath}/raw`, { cookie });
   assert.equal(raw.status, 200);
@@ -580,4 +688,25 @@ test('禁用管理台时仅保留 MCP 及动态链接服务', { timeout: 12_000 
   await expectStatus(api(origin, '/auth/status'), 404);
   await openMcp(origin, mcpPath(item.token));
   await openMcp(origin, '/mcp');
+});
+
+test('预设令牌轮换或删除后重启保持撤销，统计与权限随记录保留', { timeout: 12_000 }, async t => {
+  const archiveDir = await tempArchive(t);
+  const bootstrap = [{ label: '需轮换', token: 'legacy-rotate' }, { label: '需删除', token: 'legacy-delete' }];
+  const store = new LinkStore(archiveDir);
+  await store.init(bootstrap);
+  const [first, second] = store.list();
+  await Promise.all([store.recordUsage(first.id, 6), store.recordUsage(first.id, -3), store.recordUsage(first.id, 2)]);
+  const rotated = await store.rotate(first.id);
+  assert.equal(rotated.previousToken, first.token);
+  assert.deepEqual(await store.delete(second.id), second);
+  await store.flush();
+
+  const reopened = new LinkStore(archiveDir);
+  await reopened.init(bootstrap);
+  assert.deepEqual(reopened.list(), [rotated.item]);
+  assert.equal(reopened.findActiveByToken(first.token), undefined);
+  assert.equal(reopened.findActiveByToken(second.token), undefined);
+  assert.equal(reopened.findActiveByToken(rotated.item.token).call_count, 3);
+  assert.equal(reopened.getById(first.id).total_anlas_spent, 8);
 });
