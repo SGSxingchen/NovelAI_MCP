@@ -57,7 +57,7 @@ test('渐进式默认只列出三个工具，实际列表比平铺模式至少�
   const legacyList = await legacy.listTools();
   assert.deepEqual(progressiveList.tools.map(tool => tool.name), ['nai_discover', 'nai_describe', 'nai_execute']);
   assert.equal(PROGRESSIVE_TOOL_COUNT, 3);
-  assert.equal(legacyList.tools.length, 10);
+  assert.equal(legacyList.tools.length, 13);
   const listJson = JSON.stringify(progressiveList);
   assert.doesNotMatch(listJson, /base_prompt|1,048,576|1\.3::halftone::/);
   const progressiveBytes = Buffer.byteLength(listJson);
@@ -65,7 +65,7 @@ test('渐进式默认只列出三个工具，实际列表比平铺模式至少�
   const estimatedSavedPercent = (1 - progressiveBytes / legacyBytes) * 100;
   assert.ok(estimatedSavedPercent >= 85, `${progressiveBytes} / ${legacyBytes} 字节`);
   assert.deepEqual(getDisclosureMetrics(), {
-    progressiveTools: 3, legacyTools: 10, progressiveBytes, legacyBytes, estimatedSavedPercent,
+    progressiveTools: 3, legacyTools: 13, progressiveBytes, legacyBytes, estimatedSavedPercent,
   });
   assert.equal((await progressive.callTool({ name: 'get_subscription' })).isError, true);
   assert.equal((await legacy.callTool({ name: 'nai_discover' })).isError, true);
@@ -98,7 +98,7 @@ test('渐进式发现、描述和执行复用动作参数、风格指南与出�
 
   const { tools } = await legacy.listTools();
   const { modules } = jsonContent(await invoke('nai_discover'));
-  assert.deepEqual(modules.map(entry => entry.module), ['generate', 'enhance', 'assist', 'guides']);
+  assert.deepEqual(modules.map(entry => entry.module), ['generate', 'enhance', 'assist', 'guides', 'library']);
   assert.deepEqual(modules.flatMap(entry => entry.actions.map(action => action.name)).sort(), tools.map(tool => tool.name).sort());
   const enhance = jsonContent(await invoke('nai_discover', { module: 'enhance' }));
   assert.deepEqual(enhance.modules.map(entry => entry.module), ['enhance']);

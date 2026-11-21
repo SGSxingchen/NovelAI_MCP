@@ -11,6 +11,7 @@ import { ErrorCode, isInitializeRequest } from '@modelcontextprotocol/sdk/types.
 import { AdminAuth } from './admin-auth.js';
 import { registerAdminRoutes } from './admin-routes.js';
 import { IMAGE_PATH, loadArchivedImage } from './image-archive.js';
+import { LibraryStore } from './library-store.js';
 import { LinkStore, parseBootstrapLinks } from './link-store.js';
 import type { McpLinkRecord } from './link-store.js';
 import { createNovelAIMcpServer, PROGRESSIVE_TOOL_COUNT, SERVER_NAME, SERVER_VERSION, TOOL_COUNT } from './mcp-tools.js';
@@ -126,11 +127,12 @@ function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
   }
 
   const vibeCache = options.vibeCache ?? new VibeCache(archiveDir);
+  const libraryStore = new LibraryStore(archiveDir);
   const createServerForSession = (linkOptions?: Pick<NovelAIMcpServerOptions, 'disclosureMode' | 'linkContext' | 'onToolCompleted'>) => createNovelAIMcpServer({
-    client, archiveDir, imageOrigin, vibeCache, transportLabel: mode, allowLocalFiles: false,
+    client, archiveDir, imageOrigin, vibeCache, libraryStore, transportLabel: mode, allowLocalFiles: false,
     disclosureMode: defaultDisclosureMode, ...linkOptions,
   });
-  return { app, createServerForSession, defaultDisclosureMode };
+  return { app, createServerForSession, defaultDisclosureMode, vibeCache, libraryStore };
 }
 
 async function closeTransport(transport: Transport): Promise<void> {
@@ -142,7 +144,8 @@ async function closeTransport(transport: Transport): Promise<void> {
 }
 
 export function createStreamableHttpApp(options: AppOptions) {
-  const { app, createServerForSession, defaultDisclosureMode } = createHttpApp('streamable-http', options, ['/mcp', LINK_MCP_PATH]);
+  const { app, createServerForSession, defaultDisclosureMode, vibeCache, libraryStore } =
+    createHttpApp('streamable-http', options, ['/mcp', LINK_MCP_PATH]);
   const { archiveDir, client, imageOrigin, publicOrigin = imageOrigin } = options;
   const linkStore = options.linkStore ?? new LinkStore(archiveDir);
   const sessions = new Map<string, {
@@ -256,7 +259,8 @@ export function createStreamableHttpApp(options: AppOptions) {
   if (options.adminEnabled !== false) {
     const adminAuth = options.adminAuth ?? new AdminAuth({ archiveDir, adminPassword: options.adminPassword });
     registerAdminRoutes(app, {
-      archiveDir, client, imageOrigin, publicOrigin, linkStore, adminAuth, defaultDisclosureMode, onRevokeLink: revokeLinkSessions,
+      archiveDir, client, imageOrigin, publicOrigin, linkStore, libraryStore, vibeCache,
+      adminAuth, defaultDisclosureMode, onRevokeLink: revokeLinkSessions,
     });
   }
   app.use(handleHttpError);
@@ -272,14 +276,14 @@ export function createStreamableHttpApp(options: AppOptions) {
     closing = true;
     clearInterval(cleanupInterval);
     await Promise.all([...sessions.keys()].map(removeSession));
-    await linkStore.flush();
+    await Promise.all([linkStore.flush(), libraryStore.flush()]);
   }
 
   return { app, close, revokeLinkSessions };
 }
 
 export function createSseApp(options: AppOptions) {
-  const { app, createServerForSession } = createHttpApp('sse', options, ['/sse', '/message']);
+  const { app, createServerForSession, libraryStore } = createHttpApp('sse', options, ['/sse', '/message']);
   const sessions = new Map<string, SSEServerTransport>();
   let closing = false;
   app.use(['/sse', '/message'], parseMcpBody);
@@ -318,6 +322,7 @@ export function createSseApp(options: AppOptions) {
     const transports = [...sessions.values()];
     sessions.clear();
     await Promise.all(transports.map(closeTransport));
+    await libraryStore.flush();
   }
 
   return { app, close };
@@ -345,7 +350,7 @@ export async function startHttpServer(mode: HttpMode): Promise<void> {
     await Promise.all([options.linkStore.init(parseBootstrapLinks()), options.adminAuth.init()]);
   }
   const { app, close } = mode === 'streamable-http' ? createStreamableHttpApp(options) : createSseApp(options);
-  const server = createServer({ headersTimeout: 15_000, requestTimeout: 120_000 }, app);
+  const server = createServer({ headersTimeout: 15_000, requestTimeout: 0 }, app);
   try {
     server.listen(port, bindHost);
     await once(server, 'listening');

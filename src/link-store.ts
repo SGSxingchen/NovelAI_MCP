@@ -44,8 +44,7 @@ interface StoredLinks {
   importedBootstrapTokens: string[];
 }
 
-export async function prepareAdminDirectory(archiveDir: string): Promise<string> {
-  const directory = join(archiveDir, '.admin');
+export async function preparePrivateDirectory(directory: string): Promise<string> {
   const signal = AbortSignal.timeout(FILE_TIMEOUT);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const info = await lstat(directory);
@@ -53,6 +52,10 @@ export async function prepareAdminDirectory(archiveDir: string): Promise<string>
   if (!info.isDirectory()) throw new Error('管理台存储路径必须是真实目录');
   if ((info.mode & 0o777) !== 0o700) await chmod(directory, 0o700);
   return directory;
+}
+
+export function prepareAdminDirectory(archiveDir: string): Promise<string> {
+  return preparePrivateDirectory(join(archiveDir, '.admin'));
 }
 
 export async function readAdminFile(path: string, maxBytes: number): Promise<Buffer> {

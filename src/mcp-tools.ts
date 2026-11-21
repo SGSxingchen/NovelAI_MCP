@@ -9,10 +9,15 @@ import type { ValidateFunction } from 'ajv';
 import {
   extractArchiveId, IMAGE_PATH, listArchivedImages, loadArchivedImage, saveArchivedImage,
 } from './image-archive.js';
+import type { ArchiveMetadataInput } from './image-archive.js';
 import {
   ensurePngBuffer, extractPngTextMetadata, fitImageToMaxPixels, generateMaskFromRegions, getImageDimensions,
   prepareImg2ImgImage, prepareInpaintMask, preparePreciseReferenceImage, prepareV3VibeImage, resolveImageInput,
 } from './image-input.js';
+import {
+  ARTIST_ENTRY_SCHEMA, ARTIST_MIX_SYNTAXES, LibraryStore, PROMPT_ENTRY_SCHEMA, PROMPT_KINDS, formatArtistMix,
+} from './library-store.js';
+import type { ArtistSearch, PromptSearch } from './library-store.js';
 import {
   alignDimension, ENCODE_VIBE_MODELS, MAX_SEED, MAX_VIBE_REFERENCES, MODEL_REGISTRY, resolveGenerationModel, validateGenerationFeatures,
 } from './model-registry.js';
@@ -22,8 +27,8 @@ import {
   PRECISE_REFERENCE_TYPES, QUALITY_PRESETS, SAMPLERS, UC_PRESET_NAMES,
 } from './types.js';
 import type {
-  Action, AugmentReqType, CharacterReferenceInput, DisclosureMode, EmotionMood, ImageExtension, ImageGenerationParams, MaskRegion,
-  Model, SubscriptionSummary, SuggestTagsParams, UnpackedImage, VibeReferenceInput,
+  Action, AugmentReqType, CharacterReferenceInput, DisclosureMode, EmotionMood, ImageExtension, ImageGenerationParams, ImageMimeType,
+  MaskRegion, Model, SubscriptionSummary, SuggestTagsParams, UnpackedImage, VibeReferenceInput,
 } from './types.js';
 import {
   buildV5StylistPromptMessage, renderV5StylistGuide, V5_STYLE_BLUEPRINT_IDS, V5_STYLIST_FULL_GUIDE,
@@ -218,6 +223,24 @@ const TOOLS = [
     topic: { ...choice('按需获取的章节，默认 full 返回完整指南。', V5_STYLIST_TOPICS), default: 'full' },
     blueprint: choice('可选：直接提取某套风格蓝图及对应 MCP 推荐参数。', V5_STYLE_BLUEPRINT_IDS),
   }, [], true, false),
+  tool('search_artist_library', '查询画师与混搭配方，formatted_tag 可直接用于提示词。', {
+    query: textField('按名称、标签、分类或备注搜索。'),
+    category: textField('按画风分类筛选。'),
+    model: textField('按模型系列或模型标识筛选。'),
+    mix_only: flag('仅返回混搭配方。'),
+    syntax: { ...choice('权重串语法。', ARTIST_MIX_SYNTAXES), default: 'v4' },
+    limit: { ...bounded('integer', '最多返回多少项。', 1, 100), default: 20 },
+  }, [], true, false),
+  tool('search_prompt_library', '查询提示词模板、积木和负面预设。', {
+    query: textField('按标题、内容或标签搜索。'),
+    kind: choice('按条目用途筛选。', PROMPT_KINDS),
+    category: textField('按分类筛选。'),
+    limit: { ...bounded('integer', '最多返回多少项。', 1, 100), default: 20 },
+  }, [], true, false),
+  tool('save_library_entry', '新增画师、混搭配方或提示词条目。', {
+    target: choice('目标词库。', ['artist', 'prompt']),
+    entry: { type: 'object', description: '画师填 name 和 tag 或 mixEntries，提示词填 title 和相应内容。', anyOf: [ARTIST_ENTRY_SCHEMA, PROMPT_ENTRY_SCHEMA] },
+  }, ['target', 'entry'], false, false),
 ];
 
 export const TOOL_COUNT = TOOLS.length;
@@ -247,6 +270,13 @@ const DISCOVERY_MODULES = [
   {
     module: 'guides', summary: 'V5 风格工程、计费与模型指南', actions: [
       { name: 'get_v5_stylist_guide', summary: '读取 V5 风格工程指南' },
+    ],
+  },
+  {
+    module: 'library', summary: '画师与提示词库', actions: [
+      { name: 'search_artist_library', summary: '查询画师标签与混搭配方' },
+      { name: 'search_prompt_library', summary: '查询模板、积木和负面预设' },
+      { name: 'save_library_entry', summary: '新增画师或提示词条目' },
     ],
   },
 ];
@@ -350,17 +380,38 @@ interface ReceiptMetadata {
   note?: string;
 }
 
-export interface NovelAIMcpServerOptions {
+interface ImageActionReceipt {
+  items: (ArchiveMetadataInput & { id: string; ext: ImageExtension; mime_type: ImageMimeType })[];
+  images: UnpackedImage[];
+  text: string;
+  costText: string;
+  anlasSpent?: number;
+}
+
+const IMAGE_ACTIONS = ['generate_image', 'img2img', 'inpaint_image', 'augment_image', 'upscale_image'] as const;
+type ImageActionName = (typeof IMAGE_ACTIONS)[number];
+
+export function isImageAction(value: unknown): value is ImageActionName {
+  return IMAGE_ACTIONS.some(action => action === value);
+}
+
+export interface ActionExecutorOptions {
   client: Pick<NovelAIClient, 'generateImage' | 'augmentImage' | 'upscaleImage' | 'encodeVibe' | 'suggestTags' | 'getSubscription'>;
   archiveDir?: string;
   imageOrigin?: URL;
   allowLocalFiles?: boolean;
   transportLabel?: string;
   vibeCache?: VibeCache;
+  linkContext?: { id?: string; label: string };
+}
+
+export interface NovelAIMcpServerOptions extends ActionExecutorOptions {
   disclosureMode?: DisclosureMode;
-  linkContext?: { id: string; label: string };
+  libraryStore?: LibraryStore;
   onToolCompleted?: (event: { tool: string; anlasSpent?: number }) => void;
 }
+
+export class ActionInputError extends Error {}
 
 function normalizeLegacyGenerateArguments(args: Record<string, unknown>): void {
   args.base_prompt ||= args.prompt || args.input;
@@ -377,7 +428,7 @@ function normalizeLegacyGenerateArguments(args: Record<string, unknown>): void {
 }
 
 function generationParams(args: GenerationArguments, action: Action): ImageGenerationParams {
-  if (!args.base_prompt.trim()) throw new Error('base_prompt 不能为空');
+  if (!args.base_prompt.trim()) throw new ActionInputError('base_prompt 不能为空');
   return {
     prompt: args.base_prompt,
     negative_prompt: args.base_negative_prompt || DEFAULT_NEGATIVE_PROMPT,
@@ -428,11 +479,11 @@ function asJson(value: object): CallToolResult {
 }
 
 function validateToolArguments(validate: ValidateFunction | undefined, args: Record<string, unknown>): void {
-  if (!validate) throw new Error('未知工具');
+  if (!validate) throw new ActionInputError('未知工具');
   if (!validate(args)) {
     const fields = validate.errors?.map(error => error.instancePath.replace(/^\//, '') ||
       (error.params.missingProperty as string | undefined) || '输入');
-    throw new Error(`请检查工具参数 ${fields?.join('、')} 的类型、范围或必填项`);
+    throw new ActionInputError(`请检查工具参数 ${fields?.join('、')} 的类型、范围或必填项`);
   }
 }
 
@@ -486,20 +537,20 @@ function describeTools({ actions = [], guide, topic, blueprint }: DescribeArgume
 
 function checkGenerationSize(width: number, height: number): void {
   if (width * height > MAX_GENERATION_PIXELS) {
-    throw new Error('图片最多支持 3,145,728 像素，请缩小宽度或高度');
+    throw new ActionInputError('图片最多支持 3,145,728 像素，请缩小宽度或高度');
   }
 }
 
 function checkVibeReference(ref: VibeReferenceInput, requiresEncoding: boolean): void {
   if ([ref.image, ref.encoded_vibe, ref.vibe_id].filter(Boolean).length !== 1) {
-    throw new Error('每个 Vibe 参考必须提供 image、vibe_id 或 encoded_vibe 中的一项');
+    throw new ActionInputError('每个 Vibe 参考必须提供 image、vibe_id 或 encoded_vibe 中的一项');
   }
-  if (!requiresEncoding && !ref.image) throw new Error('V3 Vibe 只接受源参考图 image');
+  if (!requiresEncoding && !ref.image) throw new ActionInputError('V3 Vibe 只接受源参考图 image');
   if (ref.encoded_vibe && (
     ref.encoded_vibe.length > MAX_REFERENCE_BYTES ||
     !/^[A-Za-z0-9+/]+={0,2}$/.test(ref.encoded_vibe) || ref.encoded_vibe.length % 4 === 1
   )) {
-    throw new Error('encoded_vibe 必须是有效的纯 Base64 编码');
+    throw new ActionInputError('encoded_vibe 必须是有效的纯 Base64 编码');
   }
 }
 
@@ -547,19 +598,10 @@ function summarizeUsageCost(
   };
 }
 
-export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server {
-  const {
-    client, archiveDir, imageOrigin, transportLabel = 'MCP', linkContext, onToolCompleted, disclosureMode = DEFAULT_DISCLOSURE_MODE,
-  } = options;
+export function createActionExecutor(options: ActionExecutorOptions) {
+  const { client, archiveDir, imageOrigin, transportLabel = 'MCP', linkContext } = options;
   const vibeCache = options.vibeCache ?? new VibeCache(archiveDir);
   const readImage = (input: string) => resolveImageInput(input, options);
-
-  const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, {
-    capabilities: { tools: {}, prompts: {}, resources: {} },
-    instructions: disclosureMode === 'legacy'
-      ? '使用 NovelAI 生成或编辑图片，结果回执会返回图片链接、archive image_id 与本次实际消耗的 Anlas。设计 NovelAI V5 独特画风、去 AI 塑料感、阶梯画师配权或排查风格漂移前，可先免费调用 get_v5_stylist_guide（或读取资源 novelai://skills/v5-stylist）。'
-      : '用 nai_discover 找动作，nai_describe 查参数、计费或 V5 风格指南，再用 nai_execute 执行动作。出图回执包含图片链接、归档 ID 与实际 Anlas 消耗。',
-  });
 
   async function captureSubscription(): Promise<SubscriptionSummary | undefined> {
     if (typeof client.getSubscription !== 'function') return undefined;
@@ -571,25 +613,14 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     }
   }
 
-  function completed(tool: string, result: CallToolResult, usage?: UsageCostSummary): CallToolResult {
-    if (!result.isError && onToolCompleted) {
-      try {
-        onToolCompleted(usage ? { tool, anlasSpent: usage.totalSpent } : { tool });
-      } catch {
-        console.error(`[${transportLabel}] 更新工具使用统计失败`, tool);
-      }
-    }
-    return result;
-  }
-
   async function receipt(
     images: UnpackedImage[],
     meta: ReceiptMetadata,
     vibeIds: string[] = [],
     usage?: UsageCostSummary,
-  ): Promise<CallToolResult> {
+  ): Promise<ImageActionReceipt> {
     const lines = [`NovelAI 已返回 ${images.length} 张图片。`];
-    const content: CallToolResult['content'] = [];
+    const items: ImageActionReceipt['items'] = [];
     for (const [index, image] of images.entries()) {
       const dimensions = await getImageDimensions(image.buffer).catch(() => undefined);
       const comment = image.ext === 'png' ? extractPngTextMetadata(image.buffer).Comment : undefined;
@@ -615,21 +646,21 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       if (archiveDir) {
         try {
           const archived = await saveArchivedImage(archiveDir, image.buffer, metadata);
+          items.push({ ...metadata, id: archived.id, ext: archived.ext, mime_type: archived.mimeType });
           const url = imageUrl(imageOrigin, archived.id, archived.ext);
           parts.push(`image_id ${archived.id}`);
           if (url) parts.push(`[查看或下载图片](${url})`);
         } catch {
           console.error(`[${transportLabel}] 写入图片归档失败`);
-          parts.push('服务器保存失败，本张没有下载链接。原始图像已随该回执返回，请勿为同一结果自动重新出图。');
+          parts.push('服务器保存失败，本张没有下载链接。请勿为同一结果自动重新出图。');
         }
       }
       lines.push(parts.join(' · '));
-      content.push({ type: 'image', mimeType: image.mimeType, data: image.buffer.toString('base64') });
     }
     if (usage) lines.push(usage.line);
     if (meta.note) lines.push(meta.note);
     if (vibeIds.length > 0) lines.push(`可复用的 vibe_id：${[...new Set(vibeIds)].join('、')}。`);
-    return completed(meta.tool, { content: [asText(lines.join('\n')), ...content] }, usage);
+    return { items, images, text: lines.join('\n'), costText: usage?.line ?? '', anlasSpent: usage?.totalSpent };
   }
 
   async function encodeReference(
@@ -645,12 +676,17 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     }));
   }
 
-  async function generate(name: string, args: GenerationArguments, action: Action): Promise<CallToolResult> {
+  async function generate(name: string, args: GenerationArguments, action: Action): Promise<ImageActionReceipt> {
     const params = generationParams(args, action);
     const { requestedModel, capability } = resolveGenerationModel(params.model, action);
-    validateGenerationFeatures(params, capability);
+    try {
+      validateGenerationFeatures(params, capability);
+    } catch (error) {
+      if (error instanceof Error) throw new ActionInputError(error.message);
+      throw error;
+    }
     if (action === 'infill' && !args.mask_image && !args.mask_regions?.length) {
-      throw new Error('请提供 mask_image 或至少一个 mask_regions');
+      throw new ActionInputError('请提供 mask_image 或至少一个 mask_regions');
     }
     for (const ref of params.vibeReferences ?? []) checkVibeReference(ref, capability.vibeRequiresEncode);
 
@@ -680,7 +716,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     let referenceBytes = 0;
     const reserve = (bytes: number) => {
       referenceBytes += bytes;
-      if (referenceBytes > MAX_REFERENCE_BYTES) throw new Error('参考图合计大于 40 MiB，请缩小图片或用 vibe_id 复用编码');
+      if (referenceBytes > MAX_REFERENCE_BYTES) throw new ActionInputError('参考图合计大于 40 MiB，请缩小图片或用 vibe_id 复用编码');
     };
 
     const precise: CharacterReferenceInput[] = [];
@@ -697,10 +733,10 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     for (const [index, ref] of (params.vibeReferences ?? []).entries()) {
       if (ref.vibe_id) {
         const cached = await vibeCache.getById(ref.vibe_id);
-        if (!cached) throw new Error('找不到该 vibe_id，请重新提供源参考图或通过 encode_vibe 编码');
-        if (cached.model !== requestedModel) throw new Error('vibe_id 的编码模型与本次模型不同，请用同一模型重新编码');
+        if (!cached) throw new ActionInputError('找不到该 vibe_id，请重新提供源参考图或通过 encode_vibe 编码');
+        if (cached.model !== requestedModel) throw new ActionInputError('vibe_id 的编码模型与本次模型不同，请用同一模型重新编码');
         if (ref.information_extracted !== undefined && Number(ref.information_extracted.toFixed(4)) !== cached.information_extracted) {
-          throw new Error('vibe_id 已固定信息提取比例，请调整比例后重新编码源图');
+          throw new ActionInputError('vibe_id 已固定信息提取比例，请调整比例后重新编码源图');
         }
         reserve(cached.encoded_vibe.length);
         vibeIds.push(cached.id);
@@ -742,8 +778,8 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
   async function augment(args: {
     source_image: string; req_type: AugmentReqType; emotion?: EmotionMood;
     prompt?: string; defry?: number; width?: number; height?: number;
-  }): Promise<CallToolResult> {
-    if (args.req_type === 'emotion' && !args.emotion) throw new Error('req_type 为 emotion 时必须提供 emotion');
+  }): Promise<ImageActionReceipt> {
+    if (args.req_type === 'emotion' && !args.emotion) throw new ActionInputError('req_type 为 emotion 时必须提供 emotion');
     const source = await readImage(args.source_image);
     const size = await getImageDimensions(source);
     const width = args.width ?? size.width;
@@ -762,7 +798,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
 
   async function upscale(args: {
     source_image: string; model?: string; declared_blur_sigma?: number; auto_fit_1mp?: boolean;
-  }): Promise<CallToolResult> {
+  }): Promise<ImageActionReceipt> {
     const source = await readImage(args.source_image);
     const model = args.model ?? DEFAULT_UPSCALE_MODEL;
     let image = source;
@@ -770,7 +806,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       ({ buffer: image } = await fitImageToMaxPixels(source, UPSCALE_MAX_PIXELS));
     } else {
       const { width, height } = await getImageDimensions(source);
-      if (width * height > UPSCALE_MAX_PIXELS) throw new Error('源图超过 1,048,576 像素，请启用 auto_fit_1mp 或缩小图片');
+      if (width * height > UPSCALE_MAX_PIXELS) throw new ActionInputError('源图超过 1,048,576 像素，请启用 auto_fit_1mp 或缩小图片');
       image = await ensurePngBuffer(source);
     }
     const beforeSub = await captureSubscription();
@@ -785,8 +821,8 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
   async function encode(args: {
     source_image: string; model?: Model; information_extracted?: number; mask_image?: string;
     crop_to_mask?: boolean; include_raw_base64?: boolean;
-  }): Promise<CallToolResult> {
-    if (args.crop_to_mask && !args.mask_image) throw new Error('crop_to_mask 需要提供 mask_image');
+  }) {
+    if (args.crop_to_mask && !args.mask_image) throw new ActionInputError('crop_to_mask 需要提供 mask_image');
     const source = await readImage(args.source_image);
     const mask = args.mask_image ? await readImage(args.mask_image) : undefined;
     const beforeSub = await captureSubscription();
@@ -794,11 +830,63 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       mask, args.crop_to_mask);
     const afterSub = beforeSub ? await captureSubscription() : undefined;
     const usage = summarizeUsageCost(beforeSub, afterSub, 1);
-    return completed('encode_vibe', asJson({
+    return {
       vibe_id: cached.id, model: cached.model, information_extracted: cached.information_extracted,
       ...(args.include_raw_base64 ? { encoded_vibe: cached.encoded_vibe } : {}),
       ...(usage ? { anlas_spent: usage.totalSpent, remaining_anlas: usage.remainingTotal } : {}),
-    }), usage);
+    };
+  }
+
+  function runImage(name: ImageActionName, input: Record<string, unknown>): Promise<ImageActionReceipt> {
+    const args = { ...input };
+    if (name === 'generate_image') normalizeLegacyGenerateArguments(args);
+    validateToolArguments(actionsByName.get(name)?.validate, args);
+    switch (name) {
+      case 'generate_image':
+        return generate(name, args as unknown as GenerationArguments, 'generate');
+      case 'img2img':
+        return generate(name, args as unknown as GenerationArguments, 'img2img');
+      case 'inpaint_image':
+        return generate(name, args as unknown as GenerationArguments, 'infill');
+      case 'augment_image':
+        return augment(args as Parameters<typeof augment>[0]);
+      case 'upscale_image':
+        return upscale(args as Parameters<typeof upscale>[0]);
+    }
+  }
+
+  async function suggestTags(args: Record<string, unknown>) {
+    validateToolArguments(actionsByName.get('suggest_tags')?.validate, args);
+    const { prompt, model, lang, limit = 20 } = args as unknown as SuggestTagsParams & { limit?: number };
+    const { tags } = await client.suggestTags({ prompt, model, lang });
+    return { tags: tags.slice(0, limit) };
+  }
+
+  return { runImage, suggestTags, encodeVibe: encode };
+}
+
+export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server {
+  const {
+    client, archiveDir, imageOrigin, transportLabel = 'MCP', onToolCompleted, disclosureMode = DEFAULT_DISCLOSURE_MODE,
+    libraryStore = new LibraryStore(archiveDir),
+  } = options;
+  const executor = createActionExecutor(options);
+  const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, {
+    capabilities: { tools: {}, prompts: {}, resources: {} },
+    instructions: disclosureMode === 'legacy'
+      ? '使用 NovelAI 生成或编辑图片，结果回执会返回图片链接、archive image_id 与本次实际消耗的 Anlas。设计 NovelAI V5 独特画风、去 AI 塑料感、阶梯画师配权或排查风格漂移前，可先免费调用 get_v5_stylist_guide（或读取资源 novelai://skills/v5-stylist）。'
+      : '用 nai_discover 找动作，nai_describe 查参数、计费或 V5 风格指南，再用 nai_execute 执行动作。出图回执包含图片链接、归档 ID 与实际 Anlas 消耗。',
+  });
+
+  function completed(tool: string, result: CallToolResult, anlasSpent?: number): CallToolResult {
+    if (!result.isError && onToolCompleted) {
+      try {
+        onToolCompleted(anlasSpent === undefined ? { tool } : { tool, anlasSpent });
+      } catch {
+        console.error(`[${transportLabel}] 更新工具使用统计失败`, tool);
+      }
+    }
+    return result;
   }
 
   async function archive(args: { image_id?: string; limit?: number }): Promise<CallToolResult> {
@@ -840,25 +928,19 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         name = action;
         args = { ...params };
       }
-      if (name === 'generate_image') normalizeLegacyGenerateArguments(args);
+      if (isImageAction(name)) {
+        const { images, text, anlasSpent } = await executor.runImage(name, args);
+        const content: CallToolResult['content'] = [asText(text), ...images.map(image => ({
+          type: 'image' as const, mimeType: image.mimeType, data: image.buffer.toString('base64'),
+        }))];
+        return completed(name, { content }, anlasSpent);
+      }
+      if (name === 'suggest_tags') return completed(name, asJson(await executor.suggestTags(args)));
       validateToolArguments(actionsByName.get(name)?.validate, args);
       switch (name) {
-        case 'generate_image':
-          return await generate(name, args as unknown as GenerationArguments, 'generate');
-        case 'img2img':
-          return await generate(name, args as unknown as GenerationArguments, 'img2img');
-        case 'inpaint_image':
-          return await generate(name, args as unknown as GenerationArguments, 'infill');
-        case 'augment_image':
-          return await augment(args as Parameters<typeof augment>[0]);
-        case 'upscale_image':
-          return await upscale(args as Parameters<typeof upscale>[0]);
-        case 'encode_vibe':
-          return await encode(args as Parameters<typeof encode>[0]);
-        case 'suggest_tags': {
-          const input = args as unknown as SuggestTagsParams & { limit?: number };
-          const { tags } = await client.suggestTags({ prompt: input.prompt, model: input.model, lang: input.lang });
-          return completed(name, asJson({ tags: tags.slice(0, input.limit ?? 20) }));
+        case 'encode_vibe': {
+          const entry = await executor.encodeVibe(args as Parameters<typeof executor.encodeVibe>[0]);
+          return completed(name, asJson(entry), entry.anlas_spent);
         }
         case 'get_subscription': {
           const { summary } = await client.getSubscription();
@@ -877,6 +959,28 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         case 'get_v5_stylist_guide': {
           const input = args as { topic?: V5StylistTopic; blueprint?: V5StyleBlueprintId };
           return completed(name, { content: [asText(renderV5StylistGuide(input))] });
+        }
+        case 'search_artist_library': {
+          const { mix_only, syntax, ...filters } = args as ArtistSearch & {
+            mix_only?: boolean; syntax?: (typeof ARTIST_MIX_SYNTAXES)[number];
+          };
+          const artists = await libraryStore.searchArtists({ ...filters, mixOnly: mix_only, limit: filters.limit ?? 20 });
+          const items = artists.map(item => ({
+            ...item,
+            formatted_tag: formatArtistMix(item.isMix ? item.mixEntries : [{ tag: item.tag, weight: item.defaultWeight }], syntax),
+          }));
+          return completed(name, asJson({ items }));
+        }
+        case 'search_prompt_library': {
+          const filters = args as PromptSearch;
+          const items = await libraryStore.searchPrompts({ ...filters, limit: filters.limit ?? 20 });
+          return completed(name, asJson({ items }));
+        }
+        case 'save_library_entry': {
+          const item = args.target === 'artist'
+            ? await libraryStore.createArtist(args.entry)
+            : await libraryStore.createPrompt(args.entry);
+          return completed(name, asJson({ item }));
         }
         default:
           throw new Error('未知工具');

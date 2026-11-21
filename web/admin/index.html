@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NovelAI 创作画廊与 MCP 分发台</title>
+  <title>NovelAI 创作画廊 · 试画台与词库中枢</title>
   <meta name="color-scheme" content="light dark">
   <script>
     try {
@@ -13,7 +13,7 @@
       }
     } catch {}
   </script>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=studio-library-2">
 </head>
 <body>
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
@@ -28,8 +28,8 @@
           <circle cx="12" cy="11" r="2.2" fill="currentColor"/>
         </svg>
       </div>
-      <h1 id="loginHeading" class="login-title">NovelAI 画廊与分发台</h1>
-      <p class="login-subtitle">输入管理口令以查看归档作品、管理 MCP 分发链接与监控点数消耗。</p>
+      <h1 id="loginHeading" class="login-title">NovelAI 创作工作台</h1>
+      <p class="login-subtitle">输入管理口令以使用完整参数试画台、画师/提示词库、归档画廊与 MCP 分发中心。</p>
       <form id="loginForm" class="login-form" novalidate>
         <label class="field">
           <span class="field-label">管理口令</span>
@@ -56,30 +56,17 @@
         <div class="topbar-brand">
           <span class="brand-dot" aria-hidden="true"></span>
           <div>
-            <h1 class="app-title">NovelAI 创作画廊</h1>
-            <p class="app-subtitle">MCP 归档资产与链接分发中心</p>
+            <h1 class="app-title">NovelAI 创作工作台</h1>
+            <p class="app-subtitle">试画台 · 画师词库 · 提示词库 · 归档与 MCP 分发</p>
           </div>
         </div>
 
         <nav class="tab-bar" role="tablist" aria-label="主功能切换">
-          <button
-            id="tabGallery"
-            type="button"
-            role="tab"
-            class="tab-btn"
-            aria-selected="true"
-            aria-controls="panelGallery"
-            data-tab="gallery"
-          >画廊图库</button>
-          <button
-            id="tabLinks"
-            type="button"
-            role="tab"
-            class="tab-btn"
-            aria-selected="false"
-            aria-controls="panelLinks"
-            data-tab="links"
-          >MCP 链接分发</button>
+          <button id="tabGallery" type="button" role="tab" class="tab-btn" aria-selected="true" aria-controls="panelGallery" data-tab="gallery">画廊图库</button>
+          <button id="tabStudio" type="button" role="tab" class="tab-btn" aria-selected="false" aria-controls="panelStudio" data-tab="studio">在线试画台</button>
+          <button id="tabArtists" type="button" role="tab" class="tab-btn" aria-selected="false" aria-controls="panelArtists" data-tab="artists">画师词库</button>
+          <button id="tabPrompts" type="button" role="tab" class="tab-btn" aria-selected="false" aria-controls="panelPrompts" data-tab="prompts">提示词库</button>
+          <button id="tabLinks" type="button" role="tab" class="tab-btn" aria-selected="false" aria-controls="panelLinks" data-tab="links">MCP 分发</button>
         </nav>
 
         <div class="topbar-actions">
@@ -99,12 +86,22 @@
 
     <main class="main-wrap">
       <!-- 顶部概览指标带 -->
-      <section class="stats-strip" aria-label="运行概览">
+      <section class="stats-strip stats-strip-4" aria-label="运行概览">
         <article class="stat-card">
           <span class="stat-label">归档作品</span>
           <div class="stat-value-row">
             <strong id="statImageCount" class="stat-value">—</strong>
             <span id="statImageSize" class="stat-meta">计算中…</span>
+          </div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-head-row">
+            <span class="stat-label">私人词库资产</span>
+            <button id="jumpArtistsBtn" type="button" class="btn-inline">混搭台</button>
+          </div>
+          <div class="stat-value-row">
+            <strong id="statLibraryCount" class="stat-value">—</strong>
+            <span id="statLibraryMeta" class="stat-meta">加载中…</span>
           </div>
         </article>
         <article class="stat-card">
@@ -114,7 +111,7 @@
             <span id="statLinkCalls" class="stat-meta">累计调用 —</span>
           </div>
         </article>
-        <article class="stat-card stat-card-wide">
+        <article class="stat-card">
           <div class="stat-head-row">
             <span class="stat-label">NovelAI 账号与点数</span>
             <button id="refreshSubBtn" type="button" class="btn-inline" title="实时刷新余额">刷新</button>
@@ -159,7 +156,7 @@
               <button id="uploadReferenceBtn" type="button" class="btn btn-primary btn-sm">上传参考图</button>
             </div>
           </div>
-          <p class="toolbar-hint">单击作品查看高清大图与完整提示词；桌面端可在空白处按住左键拖框批量勾选，或点右上角勾选框。</p>
+          <p class="toolbar-hint">单击作品查看高清大图与完整提示词（可一键复用到试画台或绑定画师封面）；桌面端空白处左键拖框可批量勾选。</p>
         </div>
 
         <div id="galleryStage" class="gallery-stage">
@@ -168,13 +165,556 @@
 
           <div id="galleryEmpty" class="empty-state" hidden>
             <p class="empty-title">暂无匹配的归档作品</p>
-            <p class="empty-desc">尝试清空筛选条件，或通过已分发的 MCP 链接生成新作品。</p>
+            <p class="empty-desc">尝试清空筛选条件，或前往「在线试画台」生成新作品。</p>
           </div>
 
           <div id="galleryFooter" class="gallery-footer" hidden>
             <button id="loadMoreBtn" type="button" class="btn btn-secondary">加载更多作品</button>
             <span id="galleryProgress" class="progress-text"></span>
           </div>
+        </div>
+      </section>
+
+      <!-- 在线试画台面板 -->
+      <section id="panelStudio" class="panel" role="tabpanel" aria-labelledby="tabStudio" hidden>
+        <div class="studio-header">
+          <div class="mode-switcher" role="tablist" aria-label="试画操作模式">
+            <button type="button" class="mode-pill is-active" data-studio-mode="generate_image" role="tab" aria-selected="true">文生图</button>
+            <button type="button" class="mode-pill" data-studio-mode="img2img" role="tab" aria-selected="false">图生图</button>
+            <button type="button" class="mode-pill" data-studio-mode="inpaint_image" role="tab" aria-selected="false">局部重绘</button>
+            <button type="button" class="mode-pill" data-studio-mode="augment_image" role="tab" aria-selected="false">导演增强</button>
+            <button type="button" class="mode-pill" data-studio-mode="upscale_image" role="tab" aria-selected="false">4 倍超分</button>
+          </div>
+          <div class="studio-header-meta">
+            <span id="studioOpusBadge" class="pill pill-success">Opus 免费范围</span>
+            <button id="studioResetBtn" type="button" class="btn btn-ghost btn-sm">重置参数</button>
+          </div>
+        </div>
+
+        <div class="studio-layout">
+          <!-- 左侧参数配置表单 -->
+          <form id="studioForm" class="studio-controls" novalidate>
+            <!-- 源底图块：图生图 / 局部重绘 / 导演增强 / 4 倍超分 -->
+            <div id="studioSourceCard" class="studio-card" hidden>
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">源底图</h3>
+                  <p class="studio-card-desc">从画廊选取、直接上传，或粘贴归档 ID</p>
+                </div>
+                <div class="inline-btn-group">
+                  <button id="studioPickSourceBtn" type="button" class="btn btn-secondary btn-sm">从画廊选取</button>
+                  <label class="btn btn-secondary btn-sm file-trigger">
+                    本地上传
+                    <input id="studioUploadSourceInput" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+                  </label>
+                </div>
+              </div>
+              <div class="source-preview-row">
+                <div id="studioSourceThumb" class="source-thumb-box">
+                  <span class="source-thumb-empty">未选择底图</span>
+                </div>
+                <div class="source-input-col">
+                  <label class="field">
+                    <span class="field-label">底图归档 ID 或链接</span>
+                    <input id="studioSourceImage" type="text" class="input mono-input" placeholder="43 位归档 ID，或点击右上角选取/上传" spellcheck="false">
+                  </label>
+                  <div id="studioImg2ImgExtras" class="param-grid-2" hidden>
+                    <label class="field">
+                      <span class="field-label">重绘强度 <strong id="studioStrengthVal">0.70</strong></span>
+                      <input id="studioStrength" type="range" class="range-input" min="0.01" max="0.99" step="0.01" value="0.70">
+                    </label>
+                    <label class="field">
+                      <span class="field-label">附加噪点 <strong id="studioNoiseVal">0.00</strong></span>
+                      <input id="studioNoise" type="range" class="range-input" min="0" max="0.99" step="0.01" value="0">
+                    </label>
+                    <label class="check-field">
+                      <input id="studioColorCorrect" type="checkbox" checked>
+                      <span>开启色彩校正（保持原图色温）</span>
+                    </label>
+                    <label class="field">
+                      <span class="field-label">附加噪声种子（可选）</span>
+                      <input id="studioExtraNoiseSeed" type="number" class="input" min="1" placeholder="留空自动生成">
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 局部重绘蒙版块：仅 inpaint_image -->
+            <div id="studioInpaintCard" class="studio-card" hidden>
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">局部重绘蒙版</h3>
+                  <p class="studio-card-desc">添加矩形/椭圆比例重绘区域，或上传自定义黑白蒙版图</p>
+                </div>
+                <div class="inline-btn-group">
+                  <button id="studioAddMaskRegionBtn" type="button" class="btn btn-secondary btn-sm">+ 添加重绘区域</button>
+                  <button id="studioPickMaskBtn" type="button" class="btn btn-ghost btn-sm">选蒙版图</button>
+                </div>
+              </div>
+              <div id="studioMaskRegionsList" class="dynamic-list"></div>
+              <div class="param-grid-2">
+                <label class="field">
+                  <span class="field-label">自定义黑白蒙版 ID（可选，优先于区域）</span>
+                  <input id="studioMaskImage" type="text" class="input mono-input" placeholder="留空则使用上方区域列表" spellcheck="false">
+                </label>
+                <label class="field">
+                  <span class="field-label">局部重绘强度 <strong id="studioInpaintStrengthVal">1.00</strong></span>
+                  <input id="studioInpaintStrength" type="range" class="range-input" min="0.01" max="1" step="0.01" value="1">
+                </label>
+              </div>
+              <div class="param-grid-2">
+                <label class="check-field">
+                  <input id="studioAddOriginal" type="checkbox" checked>
+                  <span>未涂抹区域保留原图像素</span>
+                </label>
+                <label class="field">
+                  <span class="field-label">蒙版区噪点 <strong id="studioInpaintNoiseVal">0.00</strong></span>
+                  <input id="studioInpaintNoise" type="range" class="range-input" min="0" max="0.99" step="0.01" value="0">
+                </label>
+              </div>
+            </div>
+
+            <!-- 导演增强专属块：仅 augment_image -->
+            <div id="studioAugmentCard" class="studio-card" hidden>
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">导演增强工具</h3>
+                  <p class="studio-card-desc">选择一种单图增强处理模式，无需复杂采样参数</p>
+                </div>
+              </div>
+              <div id="studioAugmentGrid" class="augment-grid" role="radiogroup" aria-label="导演工具类型"></div>
+              <div id="studioEmotionWrap" class="field" hidden>
+                <span class="field-label">目标情绪（24 种）</span>
+                <select id="studioEmotion" class="select"></select>
+              </div>
+              <div id="studioAugmentGuideWrap" class="param-grid-2" hidden>
+                <label class="field">
+                  <span class="field-label">引导提示词（上色/情绪修饰）</span>
+                  <input id="studioAugmentPrompt" type="text" class="input" placeholder="例如：warm sunset palette, soft blush">
+                </label>
+                <label class="field">
+                  <span class="field-label">微调强度 Defry（0 最强 ~ 5 最轻）<strong id="studioDefryVal">0</strong></span>
+                  <input id="studioDefry" type="range" class="range-input" min="0" max="5" step="1" value="0">
+                </label>
+              </div>
+              <div class="param-grid-2">
+                <label class="field">
+                  <span class="field-label">输出宽度（可选，留空沿用源图）</span>
+                  <input id="studioAugWidth" type="number" class="input" min="64" max="4096" step="64" placeholder="自动">
+                </label>
+                <label class="field">
+                  <span class="field-label">输出高度（可选，留空沿用源图）</span>
+                  <input id="studioAugHeight" type="number" class="input" min="64" max="4096" step="64" placeholder="自动">
+                </label>
+              </div>
+            </div>
+
+            <!-- 4 倍超分专属块：仅 upscale_image -->
+            <div id="studioUpscaleCard" class="studio-card" hidden>
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">4 倍高清超分选项</h3>
+                  <p class="studio-card-desc">将分辨率无损放大 4 倍；原图超过 1MP 时建议开启自动适配</p>
+                </div>
+              </div>
+              <div class="param-grid-2">
+                <label class="check-field">
+                  <input id="studioAutoFit1mp" type="checkbox" checked>
+                  <span>超限时自动缩放至 1MP 以内再超分</span>
+                </label>
+                <label class="field">
+                  <span class="field-label">模糊估计值（可选 Sigma）</span>
+                  <input id="studioBlurSigma" type="number" class="input" min="0" max="10" step="0.1" placeholder="默认留空">
+                </label>
+              </div>
+            </div>
+
+            <!-- 模型与画幅块：generate_image / img2img / inpaint_image -->
+            <div id="studioModelCard" class="studio-card">
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">模型与画幅</h3>
+                  <p id="studioModelNotice" class="studio-card-desc">V5 默认支持多达 32 角色、自然语言描述与透明背景</p>
+                </div>
+              </div>
+              <div class="param-grid-2">
+                <label class="field">
+                  <span class="field-label">出图模型</span>
+                  <select id="studioModel" class="select"></select>
+                </label>
+                <label class="field">
+                  <span class="field-label">画幅预设</span>
+                  <select id="studioRatioPreset" class="select">
+                    <option value="832x1216">标准竖图 832 × 1216（Opus 免费）</option>
+                    <option value="1216x832">标准横图 1216 × 832（Opus 免费）</option>
+                    <option value="1024x1024">标准方图 1024 × 1024（Opus 免费）</option>
+                    <option value="1024x1536">大竖图 1024 × 1536</option>
+                    <option value="1536x1024">大横图 1536 × 1024</option>
+                    <option value="1472x1472">大方图 1472 × 1472</option>
+                    <option value="custom">自定义像素（64 对齐）</option>
+                  </select>
+                </label>
+              </div>
+              <div class="param-grid-3">
+                <label class="field">
+                  <span class="field-label">宽度 (px)</span>
+                  <input id="studioWidth" type="number" class="input" min="64" max="3072" step="64" value="832" required>
+                </label>
+                <label class="field">
+                  <span class="field-label">高度 (px)</span>
+                  <input id="studioHeight" type="number" class="input" min="64" max="3072" step="64" value="1216" required>
+                </label>
+                <label class="field">
+                  <span class="field-label">单次出图张数</span>
+                  <input id="studioSamples" type="number" class="input" min="1" max="8" step="1" value="1">
+                </label>
+              </div>
+              <div class="param-grid-2 studio-quick-toggles">
+                <label id="studioTransparentWrap" class="check-field">
+                  <input id="studioTransparent" type="checkbox">
+                  <span>生成透明背景 PNG（仅 V5）</span>
+                </label>
+                <label id="studioVarietyWrap" class="check-field">
+                  <input id="studioVariety" type="checkbox">
+                  <span>Variety+ 多样性增强（防脸盲/千篇一律）</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 提示词与标签联想块：generate_image / img2img / inpaint_image -->
+            <div id="studioPromptCard" class="studio-card">
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">提示词与词库插槽</h3>
+                  <p class="studio-card-desc">支持直接插入画师词库、提示词积木，以及实时 Danbooru 标签联想</p>
+                </div>
+                <div class="inline-btn-group">
+                  <button id="studioInsertArtistBtn" type="button" class="btn btn-secondary btn-sm">插入画师</button>
+                  <button id="studioInsertPromptBtn" type="button" class="btn btn-secondary btn-sm">插入词库</button>
+                  <button id="studioSavePromptBtn" type="button" class="btn btn-ghost btn-sm">存为模板</button>
+                </div>
+              </div>
+
+              <label class="field">
+                <div class="field-head-between">
+                  <span class="field-label">正面提示词（Base Prompt）</span>
+                  <span id="studioPromptChars" class="field-hint-inline">0 字符</span>
+                </div>
+                <textarea id="studioBasePrompt" class="textarea" rows="5" placeholder="输入画面描述、画师权重串（如 1.2::artist:xxx::）与光影构图…" required></textarea>
+              </label>
+
+              <!-- 实时标签联想条 -->
+              <div class="tag-suggest-bar">
+                <input id="studioTagQuery" type="text" class="input input-sm" placeholder="输入英文前缀联想 Danbooru 标签（如 silver_hair）…">
+                <select id="studioTagLang" class="select select-sm" aria-label="联想语言">
+                  <option value="en">英文 Tag</option>
+                  <option value="jp">日文联想</option>
+                </select>
+                <button id="studioSuggestTagsBtn" type="button" class="btn btn-secondary btn-sm">联想标签</button>
+              </div>
+              <div id="studioTagResults" class="tag-chip-list" hidden aria-live="polite"></div>
+
+              <label class="field">
+                <div class="field-head-between">
+                  <span class="field-label">负面提示词（Negative / UC）</span>
+                  <button id="studioFillUcBtn" type="button" class="btn-inline">从负面预设填充</button>
+                </div>
+                <textarea id="studioNegativePrompt" class="textarea" rows="3" placeholder="留空将使用模型推荐反污染负面词…"></textarea>
+              </label>
+            </div>
+
+            <!-- 多角色独立提示词与站位：V4 / V4.5 / V5 -->
+            <div id="studioCharactersCard" class="studio-card">
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">多角色独立提示词与站位</h3>
+                  <p id="studioCharsDesc" class="studio-card-desc">为每个角色设定专属外貌、服饰、负面词和画面 (X, Y) 坐标，防止特征串色</p>
+                </div>
+                <div class="inline-btn-group">
+                  <label class="check-field check-field-compact">
+                    <input id="studioUseCoords" type="checkbox" checked>
+                    <span>启用站位坐标</span>
+                  </label>
+                  <button id="studioAddCharBtn" type="button" class="btn btn-secondary btn-sm">+ 添加角色</button>
+                </div>
+              </div>
+              <div id="studioCharactersList" class="dynamic-list"></div>
+              <p id="studioCharsEmpty" class="inline-empty">当前未添加独立角色（单人构图也可直接写在正面提示词中）</p>
+            </div>
+
+            <!-- 参考图：Vibe / 精确参考（仅支持模型显示） -->
+            <div id="studioRefCard" class="studio-card" hidden>
+              <div class="studio-card-head">
+                <div>
+                  <h3 class="studio-card-title">风格与角色参考图</h3>
+                  <p id="studioRefHint" class="studio-card-desc">Vibe 氛围参考与精确角色参考互斥，系统自动按当前模型校验</p>
+                </div>
+                <div class="segmented-mini" role="radiogroup" aria-label="参考图模式">
+                  <button type="button" class="seg-mini-btn is-active" data-ref-mode="none">关闭</button>
+                  <button type="button" class="seg-mini-btn" data-ref-mode="vibe">Vibe 氛围</button>
+                  <button type="button" class="seg-mini-btn" data-ref-mode="precise">精确参考</button>
+                </div>
+              </div>
+              <div id="studioRefBody" hidden>
+                <div id="studioRefList" class="dynamic-list"></div>
+                <button id="studioAddRefBtn" type="button" class="btn btn-secondary btn-sm">+ 添加一张参考图</button>
+              </div>
+            </div>
+
+            <!-- 高阶采样参数：遵循 content-first-noise-reduction 使用语义化 details 折叠 -->
+            <details id="studioAdvancedDetails" class="studio-card studio-details">
+              <summary class="studio-details-summary">
+                <span>高阶采样与细节参数</span>
+                <span id="studioAdvancedSummary" class="field-hint-inline">步数 23 · CFG 7 · Euler Ancestral</span>
+              </summary>
+              <div class="studio-details-body">
+                <div class="param-grid-3">
+                  <label class="field">
+                    <span class="field-label">采样步数 Steps</span>
+                    <input id="studioSteps" type="number" class="input" min="1" max="50" step="1" value="23">
+                  </label>
+                  <label class="field">
+                    <span class="field-label">引导系数 CFG Scale (0-10)</span>
+                    <input id="studioScale" type="number" class="input" min="0" max="10" step="0.1" value="7">
+                  </label>
+                  <label class="field">
+                    <span class="field-label">CFG Rescale</span>
+                    <input id="studioCfgRescale" type="number" class="input" min="0" max="1" step="0.05" value="0">
+                  </label>
+                </div>
+
+                <div class="param-grid-3">
+                  <label class="field">
+                    <span class="field-label">采样器 Sampler</span>
+                    <select id="studioSampler" class="select"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">噪声调度 Schedule</span>
+                    <select id="studioSchedule" class="select"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">随机种子 Seed</span>
+                    <div class="input-with-btn">
+                      <input id="studioSeed" type="number" class="input" min="0" placeholder="留空随机">
+                      <button id="studioClearSeedBtn" type="button" class="btn btn-ghost btn-sm" title="清空为随机">随机</button>
+                    </div>
+                  </label>
+                </div>
+
+                <div class="param-grid-3">
+                  <label class="field">
+                    <span class="field-label">画质预设</span>
+                    <select id="studioQualityPreset" class="select"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">负面预设 UC</span>
+                    <select id="studioUcPreset" class="select"></select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">输出格式</span>
+                    <select id="studioImageFormat" class="select"></select>
+                  </label>
+                </div>
+
+                <div class="param-grid-3">
+                  <label class="field">
+                    <span class="field-label">无条件缩放 Uncond Scale</span>
+                    <input id="studioUncondScale" type="number" class="input" min="0" max="1.5" step="0.05" placeholder="默认 1.0">
+                  </label>
+                  <label class="field">
+                    <span class="field-label">跳过引导阈值 Sigma（可选）</span>
+                    <input id="studioSkipCfgSigma" type="number" class="input" min="0" step="1" placeholder="留空由 Variety+ 决定">
+                  </label>
+                  <label class="check-field check-field-align-end">
+                    <input id="studioLegacyUc" type="checkbox">
+                    <span>旧版 UC 解析（Legacy UC）</span>
+                  </label>
+                </div>
+
+                <div id="studioV3Extras" class="param-grid-3" hidden>
+                  <label class="check-field">
+                    <input id="studioSmea" type="checkbox">
+                    <span>开启 SMEA（V3）</span>
+                  </label>
+                  <label class="check-field">
+                    <input id="studioSmeaDyn" type="checkbox">
+                    <span>开启 SMEA DYN（V3）</span>
+                  </label>
+                  <label class="check-field">
+                    <input id="studioDecrisp" type="checkbox">
+                    <span>动态阈值降锐（V3）</span>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <p id="studioError" class="form-error" role="alert" hidden></p>
+
+            <div class="studio-submit-bar">
+              <div class="studio-submit-info">
+                <strong id="studioSubmitHint">准备就绪 · V5 Curated</strong>
+                <span id="studioSubmitSub">完成后自动归档到画廊并同步实际点数消耗</span>
+              </div>
+              <button id="studioRunBtn" type="submit" class="btn btn-primary btn-lg">开始生成</button>
+            </div>
+          </form>
+
+          <!-- 右侧实时舞台与输出画布 -->
+          <aside class="studio-stage-col" aria-label="实时出图结果">
+            <div class="studio-stage-card">
+              <div class="studio-stage-head">
+                <h3 class="studio-card-title">成品画布</h3>
+                <span id="studioRunTimer" class="pill pill-muted">待命</span>
+              </div>
+              <div id="studioCanvas" class="studio-canvas">
+                <div class="studio-canvas-empty">
+                  <svg viewBox="0 0 48 48" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <rect x="6" y="8" width="36" height="32" rx="7"/>
+                    <circle cx="17" cy="19" r="3"/>
+                    <path d="M10 34l9.5-10.5L27 31l5-5.5L38 34"/>
+                  </svg>
+                  <p>左侧调好提示词与参数，点击「开始生成」即可在此实时出图。</p>
+                </div>
+              </div>
+              <div id="studioReceipt" class="studio-receipt" hidden></div>
+              <div id="studioResultActions" class="studio-result-actions" hidden></div>
+            </div>
+
+            <div id="studioHistoryCard" class="studio-stage-card" hidden>
+              <div class="studio-stage-head">
+                <h3 class="studio-card-title">本次试画记录</h3>
+                <button id="studioClearHistoryBtn" type="button" class="btn-inline">清空列表</button>
+              </div>
+              <div id="studioHistoryStrip" class="studio-history-strip"></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- 画师词库与混搭调音台面板 -->
+      <section id="panelArtists" class="panel" role="tabpanel" aria-labelledby="tabArtists" hidden>
+        <!-- 顶部可视化画师串混搭调音台 -->
+        <section class="mixer-console" aria-label="画师串混搭调音台">
+          <div class="mixer-head">
+            <div>
+              <div class="mixer-title-row">
+                <h2 class="section-title">画师串混搭调音台</h2>
+                <span class="pill pill-accent">阶梯配权 · 自动语法</span>
+              </div>
+              <p class="section-desc">点选下方任意画师加入槽位，拖动滑块微调主次画风比例，一键生成 V4.5/V5 或 V3 权重串并送入试画台。</p>
+            </div>
+            <div class="segmented-mini" role="radiogroup" aria-label="输出语法切换">
+              <button type="button" class="seg-mini-btn is-active" data-mix-syntax="v4">V4.5 / V5</button>
+              <button type="button" class="seg-mini-btn" data-mix-syntax="v3">V3 括号</button>
+              <button type="button" class="seg-mini-btn" data-mix-syntax="plain">纯标签</button>
+            </div>
+          </div>
+
+          <div class="mixer-body">
+            <div class="mixer-slots-pane">
+              <div id="mixerSlots" class="mixer-slots"></div>
+              <div id="mixerEmpty" class="mixer-empty">
+                还没有添加画师槽位 — 在下方画师词库中点击「+ 加入混搭」或「载入调音台」即可开始调音。
+              </div>
+            </div>
+
+            <div class="mixer-preview-pane">
+              <label class="field">
+                <span class="field-label">实时生成的画师串</span>
+                <textarea id="mixerOutput" class="textarea mono-input" rows="4" readonly placeholder="加入画师后此处自动输出权重串…"></textarea>
+              </label>
+              <div class="mixer-actions">
+                <button id="mixerCopyBtn" type="button" class="btn btn-secondary btn-sm" disabled>复制画师串</button>
+                <button id="mixerSaveBtn" type="button" class="btn btn-secondary btn-sm" disabled>存为混搭配方</button>
+                <button id="mixerApplyStudioBtn" type="button" class="btn btn-primary btn-sm" disabled>写入试画台</button>
+                <button id="mixerClearBtn" type="button" class="btn btn-ghost btn-sm" disabled>清空</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 画师词库工具栏 -->
+        <div class="toolbar-container">
+          <div class="toolbar">
+            <div class="search-wrap">
+              <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="7"/>
+                <path d="m20 20-3.5-3.5"/>
+              </svg>
+              <input id="artistSearchInput" type="search" class="input search-input" placeholder="搜画师名、tag、画风备注或适配模型…" aria-label="搜索画师词库">
+            </div>
+            <div class="filter-group">
+              <select id="artistTypeFilter" class="select" aria-label="按画师类型筛选">
+                <option value="all">全部条目</option>
+                <option value="single">仅单画师</option>
+                <option value="mix">仅混搭配方</option>
+              </select>
+              <select id="artistCategoryFilter" class="select" aria-label="按画风分类筛选">
+                <option value="">全部分类</option>
+              </select>
+              <button id="openArtistBatchBtn" type="button" class="btn btn-secondary btn-sm">批量粘贴导入</button>
+              <button id="exportLibraryBtn1" type="button" class="btn btn-ghost btn-sm" data-export-library>导出 JSON</button>
+              <label class="btn btn-ghost btn-sm file-trigger">
+                导入 JSON
+                <input type="file" accept="application/json,.json" data-import-library hidden>
+              </label>
+              <button id="openCreateArtistBtn" type="button" class="btn btn-primary btn-sm">+ 新建画师/配方</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="artistsGrid" class="library-grid" aria-live="polite"></div>
+        <div id="artistsEmpty" class="empty-state" hidden>
+          <p class="empty-title">暂无匹配的画师条目</p>
+          <p class="empty-desc">点击「+ 新建画师/配方」或「批量粘贴导入」，把你收集的画师串整理进来。</p>
+        </div>
+      </section>
+
+      <!-- 提示词库面板 -->
+      <section id="panelPrompts" class="panel" role="tabpanel" aria-labelledby="tabPrompts" hidden>
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">提示词库</h2>
+            <p class="section-desc">沉淀高颜值完整场景模板、正面积木片段与反污染负面预设；MCP 也可按需搜索复用。</p>
+          </div>
+          <div class="inline-btn-group">
+            <button id="exportLibraryBtn2" type="button" class="btn btn-ghost btn-sm" data-export-library>导出 JSON</button>
+            <label class="btn btn-ghost btn-sm file-trigger">
+              导入 JSON
+              <input type="file" accept="application/json,.json" data-import-library hidden>
+            </label>
+            <button id="openCreatePromptBtn" type="button" class="btn btn-primary btn-sm">+ 新建提示词</button>
+          </div>
+        </div>
+
+        <div class="toolbar-container">
+          <div class="toolbar">
+            <div class="segmented-mini" role="tablist" aria-label="提示词用途筛选">
+              <button type="button" class="seg-mini-btn is-active" data-prompt-kind="">全部</button>
+              <button type="button" class="seg-mini-btn" data-prompt-kind="template">完整模板</button>
+              <button type="button" class="seg-mini-btn" data-prompt-kind="snippet">正面积木</button>
+              <button type="button" class="seg-mini-btn" data-prompt-kind="negative">负面预设</button>
+            </div>
+            <div class="search-wrap">
+              <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="7"/>
+                <path d="m20 20-3.5-3.5"/>
+              </svg>
+              <input id="promptSearchInput" type="search" class="input search-input" placeholder="搜标题、提示词正文、标签或分类…" aria-label="搜索提示词库">
+            </div>
+            <div class="filter-group">
+              <select id="promptCategoryFilter" class="select" aria-label="按提示词分类筛选">
+                <option value="">全部分类</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="promptsGrid" class="library-grid" aria-live="polite"></div>
+        <div id="promptsEmpty" class="empty-state" hidden>
+          <p class="empty-title">暂无匹配的提示词条目</p>
+          <p class="empty-desc">点击右上角「+ 新建提示词」，或在画廊作品详情中一键存为模板。</p>
         </div>
       </section>
 
@@ -229,6 +769,7 @@
     </div>
   </dialog>
 
+  <!-- 私密参考图上传弹窗 -->
   <dialog id="referenceUploadDialog" class="modal modal-sm" closedby="any" aria-labelledby="referenceUploadTitle">
     <div class="modal-card">
       <div class="modal-sticky-head">
@@ -252,6 +793,244 @@
           <button id="referenceUploadSubmit" type="submit" class="btn btn-primary" disabled>上传图片</button>
         </div>
       </form>
+    </div>
+  </dialog>
+
+  <!-- 新建 / 编辑画师弹窗 -->
+  <dialog id="artistModal" class="modal modal-md" closedby="any" aria-labelledby="artistModalTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="artistModalTitle" class="modal-title">新建画师条目</h2>
+        <button type="button" class="icon-btn" data-close-dialog="artistModal" aria-label="关闭弹窗">✕</button>
+      </div>
+      <form id="artistForm" class="modal-form">
+        <input id="artistEditId" type="hidden">
+        <div class="param-grid-2">
+          <label class="field">
+            <span class="field-label">名称 *</span>
+            <input id="artistNameInput" type="text" class="input" maxlength="120" required data-error="artistNameErr" placeholder="例如：水彩清透系画师 / 蓝金厚涂混搭">
+            <span id="artistNameErr" class="field-error-msg">请填写画师或混搭配方名称。</span>
+          </label>
+          <label class="field">
+            <span class="field-label">条目类型</span>
+            <select id="artistIsMixSelect" class="select">
+              <option value="false">单画师标签</option>
+              <option value="true">多画师混搭配方</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="artistSingleFields" class="param-grid-2">
+          <label class="field">
+            <span class="field-label">画师标签（Tag）*</span>
+            <input id="artistTagInput" type="text" class="input mono-input" placeholder="例如：artist:example_name" spellcheck="false">
+          </label>
+          <label class="field">
+            <span class="field-label">推荐默认权重</span>
+            <input id="artistDefaultWeightInput" type="number" class="input" min="0.05" max="3" step="0.05" value="1">
+          </label>
+        </div>
+
+        <div id="artistMixFields" class="field" hidden>
+          <div class="field-head-between">
+            <span class="field-label">混搭画师列表（1 ~ 16 项）</span>
+            <button id="artistAddMixRowBtn" type="button" class="btn-inline">+ 添加一行</button>
+          </div>
+          <div id="artistMixRows" class="dynamic-list"></div>
+        </div>
+
+        <div class="param-grid-2">
+          <label class="field">
+            <span class="field-label">画风分类（逗号分隔）</span>
+            <input id="artistCategoriesInput" type="text" class="input" placeholder="水彩, 赛璐璐, 厚涂, 复古90s">
+          </label>
+          <label class="field">
+            <span class="field-label">适配模型（逗号分隔）</span>
+            <input id="artistModelsInput" type="text" class="input" placeholder="V5, V4.5" value="V5, V4.5">
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field-label">画风与搭配备注</span>
+          <textarea id="artistNotesInput" class="textarea" rows="3" placeholder="记录笔触质感、易翻车点、推荐搭配的辅画师或权重范围…"></textarea>
+        </label>
+
+        <div class="param-grid-2">
+          <label class="field">
+            <span class="field-label">封面图归档 ID（可选）</span>
+            <div class="input-with-btn">
+              <input id="artistPreviewIdInput" type="text" class="input mono-input" placeholder="留空或从画廊点选" spellcheck="false">
+              <button id="artistPickCoverBtn" type="button" class="btn btn-secondary btn-sm">选画廊图</button>
+            </div>
+          </label>
+          <label class="check-field check-field-align-end">
+            <input id="artistPinnedInput" type="checkbox">
+            <span>置顶收藏（星标优先展示）</span>
+          </label>
+        </div>
+
+        <p id="artistFormError" class="form-error" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-close-dialog="artistModal">取消</button>
+          <button id="artistFormSubmit" type="submit" class="btn btn-primary">保存条目</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- 批量粘贴导入画师弹窗 -->
+  <dialog id="artistBatchModal" class="modal modal-md" closedby="any" aria-labelledby="artistBatchTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="artistBatchTitle" class="modal-title">批量粘贴导入画师 / 串</h2>
+        <button type="button" class="icon-btn" data-close-dialog="artistBatchModal" aria-label="关闭弹窗">✕</button>
+      </div>
+      <form id="artistBatchForm" class="modal-form">
+        <p class="section-desc">支持直接粘贴 NovelAI 画师串（如 <code>1.2::artist:a::, 0.7::artist:b::</code> 或 <code>{{artist:c}}</code>），也支持每行表格格式 <code>tag | 名称 | 分类1,分类2 | 权重 | 备注</code>。</p>
+        <div class="param-grid-2">
+          <label class="field">
+            <span class="field-label">导入方式</span>
+            <select id="batchModeSelect" class="select">
+              <option value="single_entries">拆分为多个独立单画师（自动去重）</option>
+              <option value="as_mix">保存为一条多画师混搭配方</option>
+            </select>
+          </label>
+          <label id="batchMixNameWrap" class="field" hidden>
+            <span class="field-label">混搭配方名称</span>
+            <input id="batchMixNameInput" type="text" class="input" placeholder="例如：清晨水彩主辅串">
+          </label>
+        </div>
+        <div class="param-grid-2">
+          <label class="field">
+            <span class="field-label">统一追加分类（可选）</span>
+            <input id="batchCategoriesInput" type="text" class="input" placeholder="逗号分隔，如 收藏, 夜景">
+          </label>
+          <label class="field">
+            <span class="field-label">统一适配模型（可选）</span>
+            <input id="batchModelsInput" type="text" class="input" value="V5, V4.5">
+          </label>
+        </div>
+        <label class="field">
+          <span class="field-label">粘贴画师串或列表 *</span>
+          <textarea id="batchRawText" class="textarea mono-input" rows="7" required placeholder="1.25::artist:sample_a::, 0.75::artist:sample_b::&#10;artist:sample_c | 清透厚涂 | 厚涂, 人像 | 1.1 | 光影层次细腻"></textarea>
+        </label>
+        <p id="batchFormError" class="form-error" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-close-dialog="artistBatchModal">取消</button>
+          <button id="batchFormSubmit" type="submit" class="btn btn-primary">解析并导入</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- 新建 / 编辑提示词弹窗 -->
+  <dialog id="promptModal" class="modal modal-md" closedby="any" aria-labelledby="promptModalTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="promptModalTitle" class="modal-title">新建提示词条目</h2>
+        <button type="button" class="icon-btn" data-close-dialog="promptModal" aria-label="关闭弹窗">✕</button>
+      </div>
+      <form id="promptForm" class="modal-form">
+        <input id="promptEditId" type="hidden">
+        <div class="param-grid-3">
+          <label class="field">
+            <span class="field-label">标题 *</span>
+            <input id="promptTitleInput" type="text" class="input" required data-error="promptTitleErr" placeholder="例如：电影感雨夜街景">
+            <span id="promptTitleErr" class="field-error-msg">请填写提示词标题。</span>
+          </label>
+          <label class="field">
+            <span class="field-label">用途类型</span>
+            <select id="promptKindSelect" class="select">
+              <option value="template">完整场景模板</option>
+              <option value="snippet">正面积木片段</option>
+              <option value="negative">负面预设（UC）</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">分类</span>
+            <input id="promptCategoryInput" type="text" class="input" placeholder="光影 / 构图 / 赛璐璐">
+          </label>
+        </div>
+
+        <label id="promptPositiveWrap" class="field">
+          <span class="field-label">正面提示词</span>
+          <textarea id="promptBodyInput" class="textarea" rows="4" placeholder="填写核心画面描述或可复用积木词…"></textarea>
+        </label>
+
+        <label id="promptNegativeWrap" class="field">
+          <span class="field-label">负面提示词（UC）</span>
+          <textarea id="promptNegativeInput" class="textarea" rows="3" placeholder="填写需要排除的伪影或画风污染词…"></textarea>
+        </label>
+
+        <div id="promptTemplateExtras">
+          <div class="param-grid-3">
+            <label class="field">
+              <span class="field-label">推荐模型</span>
+              <select id="promptModelSelect" class="select">
+                <option value="">不限定</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">推荐宽度</span>
+              <input id="promptWidthInput" type="number" class="input" min="64" max="4096" step="64" placeholder="例如 832">
+            </label>
+            <label class="field">
+              <span class="field-label">推荐高度</span>
+              <input id="promptHeightInput" type="number" class="input" min="64" max="4096" step="64" placeholder="例如 1216">
+            </label>
+          </div>
+
+          <div class="field">
+            <div class="field-head-between">
+              <span class="field-label">模板附带角色（可选）</span>
+              <button id="promptAddCharBtn" type="button" class="btn-inline">+ 添加角色</button>
+            </div>
+            <div id="promptCharsRows" class="dynamic-list"></div>
+          </div>
+        </div>
+
+        <div class="param-grid-2">
+          <label class="field">
+            <span class="field-label">检索标签（逗号分隔）</span>
+            <input id="promptTagsInput" type="text" class="input" placeholder="逆光, 氛围感, 纸张肌理">
+          </label>
+          <label class="field">
+            <span class="field-label">封面图归档 ID（可选）</span>
+            <div class="input-with-btn">
+              <input id="promptPreviewIdInput" type="text" class="input mono-input" placeholder="留空或从画廊点选" spellcheck="false">
+              <button id="promptPickCoverBtn" type="button" class="btn btn-secondary btn-sm">选画廊图</button>
+            </div>
+          </label>
+        </div>
+
+        <label class="check-field">
+          <input id="promptPinnedInput" type="checkbox">
+          <span>置顶收藏</span>
+        </label>
+
+        <p id="promptFormError" class="form-error" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-close-dialog="promptModal">取消</button>
+          <button id="promptFormSubmit" type="submit" class="btn btn-primary">保存提示词</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- 通用可视化选择器（选画廊图 / 选画师 / 选提示词） -->
+  <dialog id="pickerModal" class="modal modal-lg" closedby="any" aria-labelledby="pickerModalTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="pickerModalTitle" class="modal-title">快速选择</h2>
+        <button type="button" class="icon-btn" data-close-dialog="pickerModal" aria-label="关闭选择弹窗">✕</button>
+      </div>
+      <div class="picker-body">
+        <div class="picker-search-row">
+          <input id="pickerSearchInput" type="search" class="input" placeholder="输入关键词过滤…">
+        </div>
+        <div id="pickerGrid" class="picker-grid"></div>
+        <p id="pickerEmpty" class="inline-empty" hidden>没有匹配项</p>
+      </div>
     </div>
   </dialog>
 
@@ -287,7 +1066,7 @@
           <span class="field-label">工具披露模式</span>
           <select id="newLinkDisclosure" class="select">
             <option value="progressive" selected>渐进式按需披露（推荐：仅 3 元工具，省 85%+ 上下文）</option>
-            <option value="legacy">传统平铺兼容（一次性暴露全部 10 个工具）</option>
+            <option value="legacy">传统平铺兼容（一次性暴露全部 13 个工具）</option>
           </select>
         </label>
         <div class="modal-actions">
@@ -324,6 +1103,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="./app.js?v=reference-upload-1"></script>
+  <script type="module" src="./app.js?v=studio-library-2"></script>
 </body>
 </html>

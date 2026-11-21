@@ -8,13 +8,19 @@ import {
 } from './image-archive.js';
 import type { ArchivedImageMetadata, ArchiveQuery } from './image-archive.js';
 import { extractPngTextMetadata, getImageDimensions } from './image-input.js';
+import { LibraryInputError, MAX_LIBRARY_BYTES, PROMPT_KINDS } from './library-store.js';
+import type { LibraryStore } from './library-store.js';
 import { sniffImageFormat } from './response-unpack.js';
 import { isLinkExpired } from './link-store.js';
 import type { LinkStore, LinkSummary } from './link-store.js';
-import { getDisclosureMetrics } from './mcp-tools.js';
-import type { NovelAIClient } from './novelai-client.js';
+import { ActionInputError, createActionExecutor, getDisclosureMetrics, isImageAction } from './mcp-tools.js';
+import type { ActionExecutorOptions } from './mcp-tools.js';
+import { MODEL_REGISTRY } from './model-registry.js';
 import { parseOrigin } from './runtime.js';
-import { isDisclosureMode } from './types.js';
+import {
+  AUGMENT_REQ_TYPES, DEFAULT_MODEL, EMOTION_MOODS, IMAGE_FORMATS, IMAGE_MODELS, isDisclosureMode, NOISE_SCHEDULES,
+  PRECISE_REFERENCE_TYPES, QUALITY_PRESETS, SAMPLERS, UC_PRESET_NAMES,
+} from './types.js';
 import type { DisclosureMode, ImageExtension } from './types.js';
 
 const ADMIN_PATH = '/novelai-admin';
@@ -24,13 +30,11 @@ const MAX_BATCH_DELETE = 200;
 const MAX_IMAGE_PAGE_SIZE = 200;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
-interface AdminRoutesOptions {
+interface AdminRoutesOptions extends Pick<ActionExecutorOptions, 'archiveDir' | 'client' | 'imageOrigin' | 'vibeCache'> {
   adminAuth: AdminAuth;
   linkStore: LinkStore;
-  client: Pick<NovelAIClient, 'getSubscription'>;
-  archiveDir?: string;
+  libraryStore: LibraryStore;
   publicOrigin?: URL;
-  imageOrigin?: URL;
   defaultDisclosureMode: DisclosureMode;
   onRevokeLink: (id: string, options?: { onlyStaleMode?: boolean }) => void | Promise<void>;
 }
@@ -50,6 +54,8 @@ const handleAdminError: ErrorRequestHandler = (error, _req, res, next) => {
   }
   if (error instanceof AdminRequestError) {
     res.status(error.status).json({ error: error.message });
+  } else if (error instanceof LibraryInputError || error instanceof ActionInputError) {
+    res.status(400).json({ error: error.message });
   } else if (isMissing(error)) {
     res.status(404).json({ error: '找不到归档图片' });
   } else if (error?.type === 'entity.too.large') {
@@ -70,7 +76,9 @@ function imageDirectory(archiveDir: string | undefined, id: string): string {
   return archiveDir;
 }
 
-function imageItem(metadata: ArchivedImageMetadata, origin?: URL, ext?: ImageExtension) {
+function imageItem<T extends Pick<ArchivedImageMetadata, 'id' | 'mime_type' | 'private'>>(
+  metadata: T, origin?: URL, ext?: ImageExtension,
+) {
   const { id, mime_type } = metadata;
   const extension = ext ?? ({ 'image/png': 'png', 'image/webp': 'webp', 'image/jpeg': 'jpg' } as const)[mime_type] ?? 'png';
   return {
@@ -82,12 +90,18 @@ function imageItem(metadata: ArchivedImageMetadata, origin?: URL, ext?: ImageExt
   };
 }
 
+function libraryItem<T extends { previewImageId: string | null }>(item: T) {
+  return item.previewImageId ? { ...item, preview_thumb_url: `${API_PATH}/images/${item.previewImageId}/thumb` } : item;
+}
+
+function queryString(req: Request, name: string): string | undefined {
+  const value = req.query[name];
+  if (value === undefined || typeof value === 'string') return value;
+  throw new AdminRequestError(400, `查询参数 ${name} 必须为字符串`);
+}
+
 function archiveQuery(req: Request): ArchiveQuery {
-  function string(name: string): string | undefined {
-    const value = req.query[name];
-    if (value === undefined || typeof value === 'string') return value;
-    throw new AdminRequestError(400, `查询参数 ${name} 必须为字符串`);
-  }
+  const string = (name: string) => queryString(req, name);
   function number(name: string): number | undefined {
     const value = string(name);
     if (value === undefined) return undefined;
@@ -130,13 +144,20 @@ function linkDisclosureMode(value: unknown): DisclosureMode | undefined {
 }
 
 export function registerAdminRoutes(app: Express, options: AdminRoutesOptions): void {
-  const { archiveDir, adminAuth, linkStore, client, imageOrigin, onRevokeLink, publicOrigin, defaultDisclosureMode } = options;
+  const { archiveDir, adminAuth, linkStore, libraryStore, client, imageOrigin, vibeCache, onRevokeLink, publicOrigin, defaultDisclosureMode } = options;
   const configuredOrigin = publicOrigin?.origin ?? null;
   const { legacyTools: totalActions, ...metrics } = getDisclosureMetrics();
   const disclosure = { defaultMode: defaultDisclosureMode, totalActions, ...metrics };
   const api = Router();
   const parseJson = express.json({ limit: '64kb' });
+  const parseLibraryBatch = express.json({ limit: '2mb' });
+  const parseStudio = express.json({ limit: '50mb' });
+  const parseLibraryImport = express.json({ limit: MAX_LIBRARY_BYTES + 64 * 1024 });
   const parseImage = express.raw({ type: 'application/octet-stream', limit: MAX_UPLOAD_BYTES, inflate: false });
+  const studio = createActionExecutor({
+    archiveDir, client, imageOrigin, vibeCache, allowLocalFiles: false, transportLabel: 'Web 试画台',
+    linkContext: { label: 'Web 在线试画台' },
+  });
   let uploadingReference = false;
 
   function linkItem(item: LinkSummary, req: Request) {
@@ -181,6 +202,85 @@ export function registerAdminRoutes(app: Express, options: AdminRoutesOptions): 
       console.error('读取 NovelAI 订阅失败');
       res.status(502).json({ error: '读取 NovelAI 订阅失败' });
     }
+  });
+
+  api.get('/studio/meta', (_req, res) => {
+    res.json({
+      models: IMAGE_MODELS, defaultModel: DEFAULT_MODEL, capabilities: MODEL_REGISTRY, samplers: SAMPLERS,
+      noiseSchedules: NOISE_SCHEDULES, qualityPresets: QUALITY_PRESETS, ucPresets: UC_PRESET_NAMES,
+      augmentReqTypes: AUGMENT_REQ_TYPES, emotionMoods: EMOTION_MOODS,
+      preciseReferenceTypes: PRECISE_REFERENCE_TYPES, imageFormats: IMAGE_FORMATS,
+    });
+  });
+  api.post('/studio/run', parseStudio, async (req, res) => {
+    const { tool, params } = readBody(req);
+    if (!isImageAction(tool)) throw new AdminRequestError(400, 'tool 必须是生图、图生图、局部重绘、导演工具或放大动作');
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+      throw new AdminRequestError(400, 'params 必须为 JSON 对象');
+    }
+    if (!archiveDir) throw new AdminRequestError(503, '当前服务未配置图片归档');
+    const { images, items, text, costText } = await studio.runImage(tool, params as Record<string, unknown>);
+    const ok = items.length > 0 && items.length === images.length;
+    res.status(ok ? 200 : 500).json({ ok, items: items.map(item => imageItem(item, imageOrigin, item.ext)), text, costText });
+  });
+  api.post('/studio/suggest-tags', parseJson, async (req, res) => {
+    res.json(await studio.suggestTags(readBody(req)));
+  });
+
+  api.get('/library', async (req, res) => {
+    const type = queryString(req, 'type') || 'all';
+    if (type !== 'all' && type !== 'artists' && type !== 'prompts') {
+      throw new AdminRequestError(400, 'type 必须为 all、artists 或 prompts');
+    }
+    const kind = queryString(req, 'kind') || undefined;
+    const promptKind = PROMPT_KINDS.find(value => value === kind);
+    if (kind !== undefined && promptKind === undefined) {
+      throw new AdminRequestError(400, 'kind 必须为 template、snippet 或 negative');
+    }
+    const { artists, prompts, categories, stats } = await libraryStore.list({
+      type, kind: promptKind, query: queryString(req, 'q'), category: queryString(req, 'category'),
+    });
+    res.json({ artists: artists.map(libraryItem), prompts: prompts.map(libraryItem), categories, stats });
+  });
+  api.post('/library/artists', parseJson, async (req, res) => {
+    const item = await libraryStore.createArtist(readBody(req));
+    res.status(201).json({ item: libraryItem(item) });
+  });
+  api.patch('/library/artists/:id', parseJson, async (req, res) => {
+    const item = await libraryStore.updateArtist(req.params.id, readBody(req));
+    if (!item) throw new AdminRequestError(404, '找不到画师条目');
+    res.json({ item: libraryItem(item) });
+  });
+  api.delete('/library/artists/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!await libraryStore.deleteArtist(id)) throw new AdminRequestError(404, '找不到画师条目');
+    res.json({ ok: true, id });
+  });
+  api.post('/library/artists/batch-import', parseLibraryBatch, async (req, res) => {
+    const result = await libraryStore.batchImportArtists(readBody(req));
+    res.json({ ...result, items: result.items.map(libraryItem) });
+  });
+  api.post('/library/prompts', parseJson, async (req, res) => {
+    const item = await libraryStore.createPrompt(readBody(req));
+    res.status(201).json({ item: libraryItem(item) });
+  });
+  api.patch('/library/prompts/:id', parseJson, async (req, res) => {
+    const item = await libraryStore.updatePrompt(req.params.id, readBody(req));
+    if (!item) throw new AdminRequestError(404, '找不到提示词条目');
+    res.json({ item: libraryItem(item) });
+  });
+  api.delete('/library/prompts/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!await libraryStore.deletePrompt(id)) throw new AdminRequestError(404, '找不到提示词条目');
+    res.json({ ok: true, id });
+  });
+  api.get('/library/export', async (_req, res) => { res.json(await libraryStore.exportLibrary()); });
+  api.post('/library/import', parseLibraryImport, async (req, res) => {
+    const { mode, ...data } = readBody(req);
+    if (mode !== undefined && mode !== 'merge' && mode !== 'replace') {
+      throw new AdminRequestError(400, 'mode 必须为 merge 或 replace');
+    }
+    res.json({ ok: true, stats: await libraryStore.importLibrary(data, mode) });
   });
 
   api.get('/images', async (req, res) => {

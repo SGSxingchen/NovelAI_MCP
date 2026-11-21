@@ -1,3 +1,5 @@
+import { createStudioAndLibrary } from './studio-library.js?v=studio-library-2';
+
 const API_BASE = '/novelai-admin/api';
 const PAGE_SIZE = 30;
 
@@ -84,8 +86,14 @@ const els = {
   loginError: $('loginError'),
   loginSubmit: $('loginSubmit'),
   tabGallery: $('tabGallery'),
+  tabStudio: $('tabStudio'),
+  tabArtists: $('tabArtists'),
+  tabPrompts: $('tabPrompts'),
   tabLinks: $('tabLinks'),
   panelGallery: $('panelGallery'),
+  panelStudio: $('panelStudio'),
+  panelArtists: $('panelArtists'),
+  panelPrompts: $('panelPrompts'),
   panelLinks: $('panelLinks'),
   themeToggleBtn: $('themeToggleBtn'),
   logoutBtn: $('logoutBtn'),
@@ -362,6 +370,8 @@ function enterLoginView() {
   els.passwordInput.focus();
 }
 
+let studioLib = null;
+
 async function enterAppView() {
   state.authenticated = true;
   els.loginView.hidden = true;
@@ -371,18 +381,27 @@ async function enterAppView() {
     loadImages({ reset: true }),
     loadLinks(),
     loadSubscription(),
+    studioLib ? studioLib.loadInitialData() : Promise.resolve(),
   ]);
 }
 
 function switchTab(tab) {
   state.activeTab = tab;
-  const isGallery = tab === 'gallery';
-  els.tabGallery.setAttribute('aria-selected', String(isGallery));
-  els.tabLinks.setAttribute('aria-selected', String(!isGallery));
-  els.panelGallery.hidden = !isGallery;
-  els.panelLinks.hidden = isGallery;
+  const tabs = [
+    ['gallery', els.tabGallery, els.panelGallery],
+    ['studio', els.tabStudio, els.panelStudio],
+    ['artists', els.tabArtists, els.panelArtists],
+    ['prompts', els.tabPrompts, els.panelPrompts],
+    ['links', els.tabLinks, els.panelLinks],
+  ];
+  for (const [key, btn, panel] of tabs) {
+    const active = key === tab;
+    if (btn) btn.setAttribute('aria-selected', String(active));
+    if (panel) panel.hidden = !active;
+  }
   updateBatchBar();
-  if (!isGallery) loadLinks();
+  if (tab === 'links') loadLinks();
+  if ((tab === 'artists' || tab === 'prompts') && studioLib) studioLib.reloadLibrary();
 }
 
 /* ---------- 概览与订阅点数 ---------- */
@@ -719,6 +738,48 @@ function renderLightboxBody(item, pngMeta) {
     actions.appendChild(copyUrlBtn);
   }
 
+  if (studioLib) {
+    const reuseBtn = document.createElement('button');
+    reuseBtn.type = 'button';
+    reuseBtn.className = 'btn btn-secondary btn-sm';
+    reuseBtn.textContent = '复用到试画台';
+    reuseBtn.addEventListener('click', async () => {
+      await closeDialog(els.lightboxDialog);
+      studioLib.reuseFromGalleryItem(item, { ...item, png_metadata: pngMeta });
+    });
+    actions.appendChild(reuseBtn);
+
+    const sourceBtn = document.createElement('button');
+    sourceBtn.type = 'button';
+    sourceBtn.className = 'btn btn-secondary btn-sm';
+    sourceBtn.textContent = '作图生图底图';
+    sourceBtn.addEventListener('click', async () => {
+      await closeDialog(els.lightboxDialog);
+      studioLib.useGalleryImageAsSource(item, 'img2img');
+    });
+    actions.appendChild(sourceBtn);
+
+    const saveTplBtn = document.createElement('button');
+    saveTplBtn.type = 'button';
+    saveTplBtn.className = 'btn btn-ghost btn-sm';
+    saveTplBtn.textContent = '存为提示词模板';
+    saveTplBtn.addEventListener('click', async () => {
+      await closeDialog(els.lightboxDialog);
+      studioLib.saveGalleryItemAsPrompt(item, { ...item, png_metadata: pngMeta });
+    });
+    actions.appendChild(saveTplBtn);
+
+    const bindArtistBtn = document.createElement('button');
+    bindArtistBtn.type = 'button';
+    bindArtistBtn.className = 'btn btn-ghost btn-sm';
+    bindArtistBtn.textContent = '绑定画师封面';
+    bindArtistBtn.addEventListener('click', async () => {
+      await closeDialog(els.lightboxDialog);
+      studioLib.bindGalleryImageToArtist(item);
+    });
+    actions.appendChild(bindArtistBtn);
+  }
+
   const deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
   deleteBtn.className = 'btn btn-danger btn-sm';
@@ -869,7 +930,7 @@ function createLinkCard(link) {
   const modeBadge = document.createElement('span');
   const isLegacy = link.disclosure_mode === 'legacy';
   modeBadge.className = isLegacy ? 'pill pill-muted' : 'pill pill-success';
-  modeBadge.textContent = isLegacy ? '平铺兼容（10 工具）' : '渐进式 3 元工具';
+  modeBadge.textContent = isLegacy ? '平铺兼容（13 工具）' : '渐进式 3 元工具';
   titleWrap.append(nameEl, badge, modeBadge);
 
   const renameBtn = document.createElement('button');
@@ -1184,7 +1245,24 @@ function bindEvents() {
   });
 
   els.tabGallery.addEventListener('click', () => switchTab('gallery'));
+  els.tabStudio.addEventListener('click', () => switchTab('studio'));
+  els.tabArtists.addEventListener('click', () => switchTab('artists'));
+  els.tabPrompts.addEventListener('click', () => switchTab('prompts'));
   els.tabLinks.addEventListener('click', () => switchTab('links'));
+
+  studioLib = createStudioAndLibrary({
+    apiFetch,
+    showToast,
+    copyText,
+    askConfirm,
+    setupModalDialog,
+    closeDialog,
+    switchTab,
+    formatModel,
+    refreshGalleryAndOverview: () => Promise.all([loadImages({ reset: true }), loadOverview()]),
+    refreshSubscription: () => loadSubscription(false),
+  });
+  studioLib.init();
   els.refreshSubBtn.addEventListener('click', () => loadSubscription(true));
 
   let searchTimer = null;
