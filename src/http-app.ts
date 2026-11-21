@@ -109,7 +109,7 @@ function createHttpApp(mode: HttpMode, options: AppOptions, paths: string[]) {
         return;
       }
       try {
-        const image = await loadArchivedImage(archiveDir, match[1]);
+        const image = await loadArchivedImage(archiveDir, match[1], { publicOnly: true });
         if (image.ext !== match[2]) {
           res.sendStatus(404);
           return;

@@ -19,6 +19,7 @@ const archiveOperations = new Map<string, Promise<unknown>>();
 export interface ArchiveMetadataInput {
   tool: string;
   action: string;
+  private?: boolean;
   model?: string;
   width?: number;
   height?: number;
@@ -153,7 +154,9 @@ export async function getArchivedImageMetadata(archiveDir: string, id: string): 
   return readMetadata(await archivePath(archiveDir, id, signal), id, signal);
 }
 
-export async function loadArchivedImage(archiveDir: string, id: string): Promise<{
+export async function loadArchivedImage(
+  archiveDir: string, id: string, { publicOnly = false } = {},
+): Promise<{
   buffer: Buffer;
   mimeType: ImageMimeType;
   ext: ImageExtension;
@@ -162,6 +165,7 @@ export async function loadArchivedImage(archiveDir: string, id: string): Promise
   const signal = AbortSignal.timeout(FS_TIMEOUT);
   const path = await archivePath(archiveDir, id, signal);
   const metadata = await readMetadata(path, id, signal);
+  if (publicOnly && metadata.private) throw missingArchive();
   const preferredExt = metadata.ext;
   const extensions = preferredExt && IMAGE_EXTENSIONS.includes(preferredExt)
     ? [preferredExt, ...IMAGE_EXTENSIONS.filter(ext => ext !== preferredExt)]
@@ -194,12 +198,15 @@ async function* scanArchivedImages(archiveDir: string, signal: AbortSignal): Asy
   }
 }
 
-export async function listArchivedImages(archiveDir: string, limit = 20): Promise<ArchivedImageMetadata[]> {
+export async function listArchivedImages(
+  archiveDir: string, limit = 20, { publicOnly = false } = {},
+): Promise<ArchivedImageMetadata[]> {
   if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('归档查询数量必须为非负整数');
   if (limit === 0) return [];
   const signal = AbortSignal.timeout(FS_TIMEOUT);
   const records: Array<{ metadata: ArchivedImageMetadata; timestamp: number }> = [];
   for await (const metadata of scanArchivedImages(archiveDir, signal)) {
+    if (publicOnly && metadata.private) continue;
     const timestamp = Date.parse(metadata.created_at);
     const index = records.findIndex(item => item.timestamp < timestamp ||
       (item.timestamp === timestamp && item.metadata.id < metadata.id));

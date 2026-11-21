@@ -164,10 +164,14 @@ function validateSize(width: number, height: number, alignment = 1): void {
   if (width * height > MAX_IMAGE_PIXELS) throw new Error('图像像素数超过处理上限');
 }
 
-export async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number; format: string }> {
-  const { width, height, format } = await pipeline(buffer).metadata();
+export async function getImageDimensions(
+  buffer: Buffer, { verifyDecode = false } = {},
+): Promise<{ width: number; height: number; format: string }> {
+  const image = pipeline(buffer);
+  const { width, height, format } = await image.metadata();
   if (!width || !height || !format) throw new Error('无法读取图像的宽高和格式');
   validateSize(width, height);
+  if (verifyDecode) await image.resize(1, 1, { fit: 'inside' }).raw().toBuffer();
   return { width, height, format };
 }
 

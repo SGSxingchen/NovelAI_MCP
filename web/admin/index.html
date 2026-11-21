@@ -156,6 +156,7 @@
                 <option value="oldest">最早优先</option>
               </select>
               <button id="refreshGalleryBtn" type="button" class="btn btn-secondary btn-sm">刷新</button>
+              <button id="uploadReferenceBtn" type="button" class="btn btn-primary btn-sm">上传参考图</button>
             </div>
           </div>
           <p class="toolbar-hint">单击作品查看高清大图与完整提示词；桌面端可在空白处按住左键拖框批量勾选，或点右上角勾选框。</p>
@@ -228,6 +229,32 @@
     </div>
   </dialog>
 
+  <dialog id="referenceUploadDialog" class="modal modal-sm" closedby="any" aria-labelledby="referenceUploadTitle">
+    <div class="modal-card">
+      <div class="modal-sticky-head">
+        <h2 id="referenceUploadTitle" class="modal-title">上传参考图</h2>
+        <button type="button" class="icon-btn" data-close-dialog="referenceUploadDialog" aria-label="关闭上传">✕</button>
+      </div>
+      <form id="referenceUploadForm" class="modal-form">
+        <label class="field">
+          <span class="field-label">选择图片，或在此窗口粘贴</span>
+          <input id="referenceFile" type="file" class="input" accept="image/png,image/jpeg,image/webp" aria-describedby="referenceFileHint">
+        </label>
+        <p id="referenceFileHint" class="section-desc">支持 PNG、JPEG 和 WebP，单张最大 20 MiB。</p>
+        <p id="referenceFileStatus" class="section-desc" role="status" hidden></p>
+        <p id="referenceUploadError" class="form-error" role="alert" hidden></p>
+        <label id="referenceIdField" class="field" hidden>
+          <span class="field-label">归档 ID</span>
+          <input id="referenceImageId" type="text" class="input" spellcheck="false" readonly>
+        </label>
+        <div class="modal-actions">
+          <button id="copyReferenceIdBtn" type="button" class="btn btn-primary" hidden>复制归档 ID</button>
+          <button id="referenceUploadSubmit" type="submit" class="btn btn-primary" disabled>上传图片</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
   <!-- 新建分发链接弹窗 -->
   <dialog id="createLinkDialog" class="modal modal-sm" closedby="any" aria-labelledby="createLinkTitle">
     <div class="modal-card">
@@ -297,6 +324,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=reference-upload-1"></script>
 </body>
 </html>

@@ -4,10 +4,11 @@ import type { ErrorRequestHandler, Express, Request } from 'express';
 import type { AdminAuth } from './admin-auth.js';
 import {
   ARCHIVE_ID_REGEX, IMAGE_PATH, deleteArchivedImage, getArchiveStats, getOrCreateThumbnail,
-  loadArchivedImage, queryArchivedImages,
+  loadArchivedImage, queryArchivedImages, saveArchivedImage,
 } from './image-archive.js';
 import type { ArchivedImageMetadata, ArchiveQuery } from './image-archive.js';
-import { extractPngTextMetadata } from './image-input.js';
+import { extractPngTextMetadata, getImageDimensions } from './image-input.js';
+import { sniffImageFormat } from './response-unpack.js';
 import { isLinkExpired } from './link-store.js';
 import type { LinkStore, LinkSummary } from './link-store.js';
 import { getDisclosureMetrics } from './mcp-tools.js';
@@ -21,6 +22,7 @@ const API_PATH = `${ADMIN_PATH}/api`;
 const WEB_DIRECTORY = fileURLToPath(new URL('../web/admin', import.meta.url));
 const MAX_BATCH_DELETE = 200;
 const MAX_IMAGE_PAGE_SIZE = 200;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 interface AdminRoutesOptions {
   adminAuth: AdminAuth;
@@ -76,7 +78,7 @@ function imageItem(metadata: ArchivedImageMetadata, origin?: URL, ext?: ImageExt
     ext: extension,
     thumb_url: `${API_PATH}/images/${id}/thumb`,
     image_url: `${API_PATH}/images/${id}/raw`,
-    public_url: origin ? `${origin.origin}${IMAGE_PATH}${id}.${extension}` : null,
+    public_url: origin && !metadata.private ? `${origin.origin}${IMAGE_PATH}${id}.${extension}` : null,
   };
 }
 
@@ -134,6 +136,8 @@ export function registerAdminRoutes(app: Express, options: AdminRoutesOptions): 
   const disclosure = { defaultMode: defaultDisclosureMode, totalActions, ...metrics };
   const api = Router();
   const parseJson = express.json({ limit: '64kb' });
+  const parseImage = express.raw({ type: 'application/octet-stream', limit: MAX_UPLOAD_BYTES, inflate: false });
+  let uploadingReference = false;
 
   function linkItem(item: LinkSummary, req: Request) {
     const host = req.get('host');
@@ -182,6 +186,28 @@ export function registerAdminRoutes(app: Express, options: AdminRoutesOptions): 
   api.get('/images', async (req, res) => {
     const result = await queryArchivedImages(archiveDir, archiveQuery(req));
     res.json({ ...result, items: result.items.map(item => imageItem(item, imageOrigin)) });
+  });
+  api.post('/images/upload', (req, res, next) => {
+    if (!archiveDir) throw new AdminRequestError(503, '当前服务未配置图片归档');
+    if (!req.is('application/octet-stream')) {
+      throw new AdminRequestError(415, '请上传 PNG、JPEG 或 WebP 文件');
+    }
+    if (uploadingReference) throw new AdminRequestError(429, '正在处理另一张参考图，请稍后重试');
+    uploadingReference = true;
+    res.once('close', () => { uploadingReference = false; });
+    next();
+  }, parseImage, async (req, res) => {
+    const image: unknown = req.body;
+    if (!Buffer.isBuffer(image) || !sniffImageFormat(image)) {
+      throw new AdminRequestError(400, '只支持有效的 PNG、JPEG 或 WebP 图片');
+    }
+    const { width, height } = await getImageDimensions(image, { verifyDecode: true }).catch(() => {
+      throw new AdminRequestError(400, '图片损坏或尺寸超出处理上限');
+    });
+    const saved = await saveArchivedImage(archiveDir!, image, {
+      tool: 'upload_reference', action: 'upload', private: true, width, height,
+    });
+    res.status(201).json({ image_id: saved.id });
   });
   api.get('/images/:id', async (req, res) => {
     const { id } = req.params;

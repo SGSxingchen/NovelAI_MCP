@@ -13,6 +13,7 @@ import { crc32 } from 'node:zlib';
 import sharp from 'sharp';
 import { createStreamableHttpApp } from '../dist/http-app.js';
 import { getOrCreateThumbnail, saveArchivedImage, saveImage } from '../dist/image-archive.js';
+import { resolveImageInput } from '../dist/image-input.js';
 import { LinkStore, parseBootstrapLinks } from '../dist/link-store.js';
 import { getDisclosureMetrics } from '../dist/mcp-tools.js';
 import { NovelAIClient } from '../dist/novelai-client.js';
@@ -678,6 +679,45 @@ test('图库接口查询旧版和新图、保护原图、缓存缩略图并安�
   });
   assert.deepEqual(await read('/images'), { total: 0, items: [], hasMore: false, facets: { models: [], tools: [], links: [] } });
   assert.equal((await read('/overview')).archive.totalCount, 0);
+});
+
+test('管理台归档原始参考图并允许 MCP 按 ID 读取', { timeout: 20_000 }, async t => {
+  const archiveDir = await tempArchive(t);
+  const { origin } = await startApp(t, { archiveDir, imageOrigin });
+  const jpg = await createImage(240, 120).jpeg().toBuffer();
+  const upload = (bytes, cookie, contentType = 'application/octet-stream') => fetch(new URL(apiBase + '/images/upload', origin), {
+    method: 'POST', signal: AbortSignal.timeout(6_000), body: bytes,
+    headers: { 'Content-Type': contentType, ...(cookie ? { Cookie: cookie } : {}) },
+  });
+  await expectStatus(upload(jpg), 401);
+  const { cookie } = await signIn(origin);
+  await expectStatus(upload(jpg, cookie, 'image/jpeg'), 415);
+  await expectStatus(upload(Buffer.from('不是图片'), cookie), 400);
+  const brokenPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jASsAAAAASUVORK5CYII=', 'base64');
+  await expectStatus(upload(brokenPng, cookie), 400);
+  const { image_id: id } = await json(upload(jpg, cookie), 201);
+  assert.match(id, /^[A-Za-z0-9_-]{43}$/);
+  const { items } = await json(api(origin, '/images', { cookie }));
+  assert.equal(items[0].id, id);
+  assert.equal(items[0].action, 'upload');
+  assert.equal(items[0].private, true);
+  assert.equal(items[0].public_url, null);
+  assert.deepEqual(await resolveImageInput(id, { archiveDir }), jpg);
+  const raw = await api(origin, '/images/' + id + '/raw', { cookie });
+  assert.equal(raw.status, 200);
+  assert.deepEqual(Buffer.from(await raw.arrayBuffer()), jpg);
+  await expectStatus(request(origin, '/novelai-images/' + id + '.jpg'), 404);
+  const headers = await openMcp(origin, '/mcp');
+  const listed = await rpcResult(postMcp(origin, '/mcp', {
+    id: 2, method: 'tools/call', params: { name: 'nai_execute', arguments: { action: 'list_archived_images', params: {} } },
+  }, headers));
+  assert.deepEqual(JSON.parse(listed.content.at(-1).text).images, []);
+  const detail = await rpcResult(postMcp(origin, '/mcp', {
+    id: 3, method: 'tools/call', params: { name: 'nai_execute', arguments: { action: 'list_archived_images', params: { image_id: id } } },
+  }, headers));
+  const metadata = JSON.parse(detail.content.at(-1).text);
+  assert.equal(metadata.image_id, id);
+  assert.equal(metadata.image_url, undefined);
 });
 
 test('禁用管理台时仅保留 MCP 及动态链接服务', { timeout: 12_000 }, async t => {

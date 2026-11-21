@@ -12,6 +12,12 @@
 
 [Google 开发者接入文档](https://developers.google.com/connected-apps/mcp)
 
+## 上传参考图
+
+登录 NovelAI 画廊，在「画廊图库」点「上传参考图」。选择本地文件，或把剪贴板中的图像粘贴到上传窗口。支持 PNG、JPEG 和 WebP，单张最大 20 MiB。上传保留原图，可以在画廊里查看、下载和删除。
+
+复制上传结果中的归档 ID，贴到 Gemini，说明用它做图生图或角色参考。MCP 分别把 ID 作为 `source_image` 或 `character_references[].image` 读取。持有有效 MCP 链接和归档 ID 的调用方可以使用该图。上传的参考图只在管理台列出。
+
 ## 图片回执
 
 公网部署的工具回执同时包含原生 PNG 和「查看或下载图片」的文本链接。Gemini 若没有内嵌图片，可以打开回执中的链接。归档链接没有有效期，服务重启后仍可使用。链接应按图片访问凭据保管。

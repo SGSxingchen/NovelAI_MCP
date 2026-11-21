@@ -31,6 +31,7 @@ const TOOL_LABELS = {
 
 const ACTION_LABELS = {
   generate: '文生图',
+  upload: '参考图',
   img2img: '图生图',
   infill: '局部重绘',
   upscale: '4 倍超分',
@@ -100,6 +101,16 @@ const els = {
   filterModel: $('filterModel'),
   filterSort: $('filterSort'),
   refreshGalleryBtn: $('refreshGalleryBtn'),
+  uploadReferenceBtn: $('uploadReferenceBtn'),
+  referenceUploadDialog: $('referenceUploadDialog'),
+  referenceUploadForm: $('referenceUploadForm'),
+  referenceFile: $('referenceFile'),
+  referenceFileStatus: $('referenceFileStatus'),
+  referenceUploadError: $('referenceUploadError'),
+  referenceUploadSubmit: $('referenceUploadSubmit'),
+  referenceIdField: $('referenceIdField'),
+  referenceImageId: $('referenceImageId'),
+  copyReferenceIdBtn: $('copyReferenceIdBtn'),
   galleryStage: $('galleryStage'),
   marqueeBox: $('marqueeBox'),
   galleryGrid: $('galleryGrid'),
@@ -211,7 +222,7 @@ async function copyText(text, successMsg = '已复制到剪贴板') {
 
 async function apiFetch(path, options = {}) {
   const headers = { ...(options.headers || {}) };
-  if (options.body !== undefined && typeof options.body !== 'string') {
+  if (options.body !== undefined && typeof options.body !== 'string' && !(options.body instanceof Blob)) {
     headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(options.body);
   }
@@ -509,7 +520,7 @@ function createArtCard(item, absoluteIndex) {
   badges.className = 'art-badges';
   const modelPill = document.createElement('span');
   modelPill.className = 'pill pill-overlay';
-  modelPill.textContent = formatModel(item.model);
+  modelPill.textContent = item.private ? '参考图' : formatModel(item.model);
   badges.appendChild(modelPill);
 
   if (typeof item.anlas_spent === 'number') {
@@ -735,7 +746,7 @@ function renderLightboxBody(item, pngMeta) {
     ['分辨率', item.width && item.height ? `${item.width} × ${item.height}` : '未知'],
     ['随机种子', item.seed !== undefined ? String(item.seed) : (comment?.seed ? String(comment.seed) : '未知')],
     ['点数消耗', typeof item.anlas_spent === 'number' ? (item.anlas_spent === 0 ? '0 点（免费）' : `${item.anlas_spent} 点`) : '未记录'],
-    ['来源链接', item.link_label || '历史归档 / 本机入口'],
+    ['来源', item.private ? '画廊上传' : item.link_label || '历史归档 / 本机入口'],
     ['文件体积', formatBytes(item.size_bytes)],
     ['创建时间', formatTime(item.created_at)],
   ];
@@ -1052,10 +1063,87 @@ function openGuideDialog(link) {
   els.guideDialog.showModal();
 }
 
+function bindReferenceUpload() {
+  let selectedFile = null;
+  let uploading = false;
+
+  function selectFile(file) {
+    els.referenceUploadError.hidden = true;
+    els.referenceIdField.hidden = true;
+    els.referenceImageId.value = '';
+    els.copyReferenceIdBtn.hidden = true;
+    els.referenceUploadSubmit.hidden = false;
+    selectedFile = file && file.size > 0 && file.size <= 20 * 1024 * 1024 ? file : null;
+    els.referenceUploadSubmit.disabled = !selectedFile;
+    els.referenceFileStatus.hidden = !selectedFile;
+    if (selectedFile) els.referenceFileStatus.textContent = '已选图片 · ' + formatBytes(selectedFile.size);
+    if (file && !selectedFile) {
+      els.referenceUploadError.textContent = '请选择一张不超过 20 MiB 的图片';
+      els.referenceUploadError.hidden = false;
+    }
+  }
+
+  els.uploadReferenceBtn.addEventListener('click', () => {
+    if (!uploading) {
+      els.referenceUploadForm.reset();
+      selectFile(null);
+    }
+    els.referenceUploadDialog.showModal();
+  });
+  els.referenceFile.addEventListener('change', () => selectFile(els.referenceFile.files[0]));
+  els.referenceUploadDialog.addEventListener('paste', (event) => {
+    if (uploading) return;
+    const file = Array.from(event.clipboardData?.files ?? []).find(item => item.type.startsWith('image/'));
+    if (!file) return;
+    event.preventDefault();
+    els.referenceFile.value = '';
+    selectFile(file);
+  });
+  els.copyReferenceIdBtn.addEventListener('click', () => {
+    copyText(els.referenceImageId.value, '已复制归档 ID，可直接粘贴到 Gemini');
+  });
+
+  els.referenceUploadForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!selectedFile || uploading) return;
+    uploading = true;
+    els.referenceFile.disabled = true;
+    els.referenceUploadSubmit.disabled = true;
+    els.referenceUploadError.hidden = true;
+    try {
+      const { image_id } = await apiFetch('/images/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: selectedFile,
+        signal: AbortSignal.timeout(90_000),
+      });
+      selectedFile = null;
+      els.referenceFile.value = '';
+      els.referenceFileStatus.textContent = '已上传到画廊';
+      els.referenceFileStatus.hidden = false;
+      els.referenceImageId.value = image_id;
+      els.referenceIdField.hidden = false;
+      els.copyReferenceIdBtn.hidden = false;
+      els.referenceUploadSubmit.hidden = true;
+      showToast('已上传参考图');
+      await Promise.all([loadImages({ reset: true }), loadOverview()]);
+    } catch (error) {
+      if (!state.authenticated) await closeDialog(els.referenceUploadDialog);
+      els.referenceUploadError.textContent = error.message;
+      els.referenceUploadError.hidden = false;
+    } finally {
+      uploading = false;
+      els.referenceFile.disabled = false;
+      els.referenceUploadSubmit.disabled = !selectedFile;
+    }
+  });
+}
+
 /* ---------- 事件绑定与启动 ---------- */
 
 function bindEvents() {
-  [els.lightboxDialog, els.createLinkDialog, els.guideDialog, els.confirmDialog].forEach(setupModalDialog);
+  [els.lightboxDialog, els.createLinkDialog, els.guideDialog, els.confirmDialog, els.referenceUploadDialog].forEach(setupModalDialog);
+  bindReferenceUpload();
 
   document.addEventListener('click', (event) => {
     const closeBtn = event.target.closest('[data-close-dialog]');

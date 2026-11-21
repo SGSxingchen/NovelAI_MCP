@@ -807,7 +807,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       const id = extractArchiveId(args.image_id, imageOrigin);
       if (!id) throw new Error('image_id 需要是 43 位归档 ID 或本站归档图片链接');
       const { metadata, buffer, ext } = await loadArchivedImage(archiveDir, id);
-      const url = imageUrl(imageOrigin, id, ext);
+      const url = metadata.private ? undefined : imageUrl(imageOrigin, id, ext);
       const result = asJson({
         ...metadata, image_id: id, image_url: url,
         ...(ext === 'png' ? { png_metadata: extractPngTextMetadata(buffer) } : {}),
@@ -815,7 +815,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
       if (url) result.content.unshift(asText(`[查看或下载图片](${url})`));
       return result;
     }
-    const images = await listArchivedImages(archiveDir, args.limit ?? 10);
+    const images = await listArchivedImages(archiveDir, args.limit ?? 10, { publicOnly: true });
     const entries = images.map(metadata => ({
       ...metadata, image_id: metadata.id, image_url: imageUrl(imageOrigin, metadata.id, metadata.ext ?? 'png'),
     }));
