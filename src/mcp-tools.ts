@@ -48,8 +48,9 @@ const UPSCALE_MAX_PIXELS = 1048576;
 const MAX_REFERENCE_BYTES = 40 * 1024 * 1024;
 const IMAGE_INPUT = '接受归档 ID、本站归档图片链接、公网 HTTPS 图片链接、图像 Base64 或图像数据 URI。仅标准输入输出模式支持本地文件。';
 const IMAGE_RECEIPT = '展示结果中的「查看或下载图片」公网链接，每张图都保留对应链接。';
-const COST_POLICY = '计费参考说明：Opus 订阅下 V3/V4/V4.5 满足总像素 ≤1,048,576（如 832×1216、1216×832、1024×1024）、steps ≤28、n_samples = 1 且未附加收费参考时免费（0 Anlas）；超像素、超过 28 步、多图或非 Opus 订阅（Paper/Tablet/Scroll）会按规格扣 Anlas。V5 系列优先消耗独立 V5 额度条，耗尽（isNegative）或超规格时转扣 Anlas。出图回执会汇报本次实际消耗的 Anlas 与余额。';
-const V5_STYLIST_HINT = '设计 NovelAI V5 独特画风、去 AI 塑料感、配置阶梯画师权重、海报排版或排查风格偏移时，可先免费调用 get_v5_stylist_guide 获取 V5 风格工程指南。';
+const MODEL_POLICY = '默认固定使用 nai-diffusion-5-curated（V5 Curated）；除非用户明确点名其他模型，否则一律省略 model 参数（严禁凭旧记忆或省点考量自行传 V4.5 或 V5 Full，即使上一轮因参考图用过旧模型，后续普通生图或 img2img 也必须省略 model 回到 V5 Curated）。';
+const COST_POLICY = '计费参考说明：默认出图使用 V5 Curated（优先消耗独立 V5 额度条，耗尽或超规格时转扣 Anlas；请勿为了省点擅自降级为旧模型）。Opus 订阅下旧代模型满足总像素 ≤1,048,576（如 832×1216、1216×832、1024×1024）、steps ≤28、n_samples = 1 且未附加收费参考时为 0 Anlas，非 Opus 订阅或附加收费参考按规格扣 Anlas；V5 系列优先消耗独立 V5 额度条，耗尽（isNegative）或超规格时转扣 Anlas。出图回执会汇报本次实际消耗的 Anlas 与余额。';
+const V5_STYLIST_HINT = '设计 NovelAI V5 独特画风、去 AI 塑料感、配置阶梯画师权重、海报排版或排查风格偏移时，可先免费调用 get_v5_stylist_guide 获取 V5 风格工程指南（默认同样走 V5 Curated）。';
 
 const bounded = (type: 'number' | 'integer', description: string, minimum: number, maximum: number) => (
   { type, description, minimum, maximum }
@@ -79,8 +80,8 @@ const generationFields = {
       required: ['prompt'],
     },
   },
-  model: { ...choice('出图模型。默认 V5 Curated。V3/V4/V4.5 在 Opus 下满足 ≤1,048,576 像素、≤28 步、单张免费；V5 优先消耗独立 V5 额度条，耗尽后扣 Anlas；非 Opus 订阅按规格扣 Anlas。', IMAGE_MODELS), default: DEFAULT_MODEL },
-  steps: bounded('integer', '采样步数（1-50），由模型决定默认值（V4.5 默认 28，V5 默认 23，V5 Full Medium 固定 14）。Opus 免费上限为 28 步，超过 28 步开始扣 Anlas。', 1, 50),
+  model: { ...choice('出图模型，默认 nai-diffusion-5-curated（V5 Curated）。除非用户明确点名其他模型，否则请省略此参数（严禁凭旧习惯或省点考量自行填 V4.5 或 V5 Full；若省略此参数但传入了仅旧模型支持的 character_references 或 vibe_references，服务端会自动临时路由并在回执说明，后续普通出图请继续省略 model）。', IMAGE_MODELS), default: DEFAULT_MODEL },
+  steps: bounded('integer', '采样步数（1-50），由模型决定默认值（V5 默认 23，V5 Full Medium 固定 14，V4.5 默认 28）。超过 28 步会按规格增加额度或 Anlas 消耗。', 1, 50),
   seed: bounded('integer', '随机种子，省略或传非正数时随机生成。', Number.MIN_SAFE_INTEGER, MAX_SEED),
   n_samples: bounded('integer', '出图数量（1-8 张）。Opus 仅 1 张在免费范围内，大于 1 张开始扣 Anlas。', 1, 8),
   scale: bounded('number', '提示词引导强度，范围 0 至 10。', 0, 10),
@@ -92,7 +93,7 @@ const generationFields = {
   use_coords: flag('采用角色坐标。省略时，有独立角色则自动启用。'),
   quality_preset: choice('质量预设。旧模型使用质量开关，none 关闭。', QUALITY_PRESETS),
   uc_preset: choice('负面提示词预设。V5 Full Medium 固定为 heavy。', UC_PRESET_NAMES),
-  transparent_background: flag('V5 透明背景。V5 Curated 局部重绘回退到 V4.5 时不可用。'),
+  transparent_background: flag('V5 透明背景（仅 V5 系列支持）。'),
   image_format: choice('出图格式，默认 PNG。', IMAGE_FORMATS),
   smea: flag('启用 V3 的 SMEA。'),
   smea_dyn: flag('启用 V3 的动态 SMEA。'),
@@ -154,18 +155,18 @@ function tool(
 }
 
 const TOOLS = [
-  tool('generate_image', `按提示词画图，默认使用 V5 Curated。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
+  tool('generate_image', `按提示词画图。${MODEL_POLICY}${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...generationFields,
-    width: { ...dimension('图片宽度（像素），对齐到 64 的倍数，默认 832。Opus 免费上限为 width × height ≤ 1,048,576（如 832×1216、1216×832、1024×1024）。'), default: DEFAULT_GENERATION_SIZE.width },
-    height: { ...dimension('图片高度（像素），对齐到 64 的倍数，默认 1216。Opus 免费上限为 width × height ≤ 1,048,576。'), default: DEFAULT_GENERATION_SIZE.height },
+    width: { ...dimension('图片宽度（像素），对齐到 64 的倍数，默认 832。标准单图基准上限为 width × height ≤ 1,048,576（如 832×1216、1216×832、1024×1024）。'), default: DEFAULT_GENERATION_SIZE.width },
+    height: { ...dimension('图片高度（像素），对齐到 64 的倍数，默认 1216。标准单图基准上限为 width × height ≤ 1,048,576。'), default: DEFAULT_GENERATION_SIZE.height },
   }, ['base_prompt']),
-  tool('img2img', `用提示词重绘源图，strength 越大改动越多。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
+  tool('img2img', `用提示词重绘源图，strength 越大改动越多。${MODEL_POLICY}${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
     strength: unit('去噪强度，默认 0.7。'),
     color_correct: flag('校正颜色以贴近原图，默认开启。'),
     extra_noise_seed: bounded('integer', '额外噪声种子，默认沿用出图种子。', 1, MAX_SEED),
   }, ['base_prompt', 'source_image']),
-  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。V5 Curated 自动回退到 V4.5 Curated。${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
+  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。默认 V5 Curated 会自动使用同代 V5 Full Inpainting。${MODEL_POLICY}${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
     mask_image: textField(`黑色保留，白色重绘。与 mask_regions 同时提供时使用此遮罩。${IMAGE_INPUT}`),
     mask_regions: {
@@ -288,7 +289,7 @@ const GUIDES = [
 ] as const;
 
 const PROGRESSIVE_TOOLS = [
-  tool('nai_discover', '浏览或搜索 NovelAI 动作和指南。', {
+  tool('nai_discover', '浏览或搜索 NovelAI 动作和指南（默认出图模型 V5 Curated）。', {
     module: choice('筛选模块。', DISCOVERY_MODULES.map(entry => entry.module)),
     query: textField('按关键词搜索。'),
   }, [], true, false),
@@ -298,7 +299,7 @@ const PROGRESSIVE_TOOLS = [
     topic: choice('V5 指南章节。', V5_STYLIST_TOPICS),
     blueprint: choice('V5 风格蓝图。', V5_STYLE_BLUEPRINT_IDS),
   }, [], true, false),
-  tool('nai_execute', '执行指定动作，可能消耗 Anlas。', {
+  tool('nai_execute', '执行指定动作（默认模型 nai-diffusion-5-curated；未获用户明确点名其他模型时请省略 params.model，勿自行传 V4.5），可能消耗额度或 Anlas。', {
     action: { type: 'string', minLength: 1 },
     params: { type: 'object' },
   }, ['action']),
@@ -678,6 +679,21 @@ export function createActionExecutor(options: ActionExecutorOptions) {
 
   async function generate(name: string, args: GenerationArguments, action: Action): Promise<ImageActionReceipt> {
     const params = generationParams(args, action);
+    let autoModelNotice: string | undefined;
+    const hasPrecise = Boolean(params.characterReferences?.length);
+    const hasVibes = Boolean(params.vibeReferences?.length);
+    if (params.model === undefined && (hasPrecise !== hasVibes)) {
+      if (hasPrecise) {
+        params.model = 'nai-diffusion-4-5-full';
+        autoModelNotice = '因传入了仅 V4.5 支持的 character_references 且未指定 model，本次已自动临时改用 nai-diffusion-4-5-full；后续普通生图或 img2img 请继续省略 model 以默认走 nai-diffusion-5-curated。';
+      } else {
+        const firstVibeId = params.vibeReferences?.find(ref => ref.vibe_id)?.vibe_id;
+        const cached = firstVibeId ? await vibeCache.getById(firstVibeId) : undefined;
+        const fallbackVibeModel: Model = cached?.model ?? (action === 'infill' ? 'nai-diffusion-4-full' : 'nai-diffusion-4-5-full');
+        params.model = fallbackVibeModel;
+        autoModelNotice = `因传入了仅旧模型支持的 vibe_references 且未指定 model，本次已自动临时改用 ${fallbackVibeModel}；后续普通生图或 img2img 请继续省略 model 以默认走 nai-diffusion-5-curated。`;
+      }
+    }
     const { requestedModel, capability } = resolveGenerationModel(params.model, action);
     try {
       validateGenerationFeatures(params, capability);
@@ -769,9 +785,10 @@ export function createActionExecutor(options: ActionExecutorOptions) {
     const generated = await client.generateImage(params);
     const afterSub = beforeSub ? await captureSubscription() : undefined;
     const usage = summarizeUsageCost(beforeSub, afterSub, generated.images.length);
+    const note = [autoModelNotice, generated.fallbackNotice].filter(Boolean).join('\n') || undefined;
     return receipt(generated.images, {
       tool: name, action, model: generated.model, width, height, seed: generated.seed,
-      prompt_preview: params.prompt.slice(0, 240), note: generated.fallbackNotice,
+      prompt_preview: params.prompt.slice(0, 240), note,
     }, vibeIds, usage);
   }
 
@@ -874,8 +891,8 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
   const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, {
     capabilities: { tools: {}, prompts: {}, resources: {} },
     instructions: disclosureMode === 'legacy'
-      ? '使用 NovelAI 生成或编辑图片，结果回执会返回图片链接、archive image_id 与本次实际消耗的 Anlas。设计 NovelAI V5 独特画风、去 AI 塑料感、阶梯画师配权或排查风格漂移前，可先免费调用 get_v5_stylist_guide（或读取资源 novelai://skills/v5-stylist）。'
-      : '用 nai_discover 找动作，nai_describe 查参数、计费或 V5 风格指南，再用 nai_execute 执行动作。出图回执包含图片链接、归档 ID 与实际 Anlas 消耗。',
+      ? `使用 NovelAI 生成或编辑图片，结果回执会返回图片链接、archive image_id 与本次实际消耗的 Anlas。${MODEL_POLICY}${V5_STYLIST_HINT}`
+      : `${MODEL_POLICY}用 nai_discover 找动作，nai_describe 查参数、计费或 V5 风格指南，再用 nai_execute 执行动作。出图回执包含图片链接、归档 ID 与实际 Anlas 消耗。`,
   });
 
   function completed(tool: string, result: CallToolResult, anlasSpent?: number): CallToolResult {

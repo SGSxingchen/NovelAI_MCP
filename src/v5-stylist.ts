@@ -37,7 +37,7 @@ export const V5_STYLE_BLUEPRINTS: Record<V5StyleBlueprintId, V5StyleBlueprint> =
   pop_halftone_poster: {
     id: 'pop_halftone_poster',
     name: 'Pop Halftone Graphic Poster (波普网点平面海报)',
-    recommendedModel: 'nai-diffusion-5-full',
+    recommendedModel: 'nai-diffusion-5-curated',
     recommendedSettings: {
       quality_preset: 'none',
       uc_preset: 'light',
@@ -53,13 +53,13 @@ export const V5_STYLE_BLUEPRINTS: Record<V5StyleBlueprintId, V5StyleBlueprint> =
     fineTuningKnobs: [
       '调整 `halftone` / `screentone` 权重（±0.05~0.10）控制网点颗粒强度',
       '调整 `0.2::rolua::`（0.15~0.30，步进 0.05）控制色彩张力与锐度',
-      '在自然语言构图段加入明确负空间与引号内标题文字（V5 Full 支持最多 750 字符）',
+      '在自然语言构图段加入明确负空间与引号内标题文字（默认走 V5 Curated；仅在超长排版文本 >703 token 时再按需切 V5 Full）',
     ],
   },
   faux_nihonga_watercolor: {
     id: 'faux_nihonga_watercolor',
     name: 'Faux Nihonga & Mineral Watercolor (伪日本画与岩彩水彩)',
-    recommendedModel: 'nai-diffusion-5-full',
+    recommendedModel: 'nai-diffusion-5-curated',
     recommendedSettings: {
       quality_preset: 'none',
       uc_preset: 'light',
@@ -81,7 +81,7 @@ export const V5_STYLE_BLUEPRINTS: Record<V5StyleBlueprintId, V5StyleBlueprint> =
   retro_90s_cel: {
     id: 'retro_90s_cel',
     name: '90s Retro Cel & Production Keyframe (90 年代复古赛璐璐原画)',
-    recommendedModel: 'nai-diffusion-5-full',
+    recommendedModel: 'nai-diffusion-5-curated',
     recommendedSettings: {
       quality_preset: 'none',
       uc_preset: 'light',
@@ -103,7 +103,7 @@ export const V5_STYLE_BLUEPRINTS: Record<V5StyleBlueprintId, V5StyleBlueprint> =
   high_contrast_etching: {
     id: 'high_contrast_etching',
     name: 'High-Contrast Etching & Dramatic Spot Color (高对比钢笔蚀刻与单点专色)',
-    recommendedModel: 'nai-diffusion-5-full',
+    recommendedModel: 'nai-diffusion-5-curated',
     recommendedSettings: {
       quality_preset: 'none',
       uc_preset: 'light',
@@ -113,7 +113,7 @@ export const V5_STYLE_BLUEPRINTS: Record<V5StyleBlueprintId, V5StyleBlueprint> =
     promptBaseline:
       'ink (medium), nib pen (medium), ligne claire, high contrast, partially colored, spot color, monochrome + strictly one focal accent color named in the scene description',
     notes:
-      '适用 `nai-diffusion-5-full` 或 `nai-diffusion-5-curated`。关键禁忌：非焦点元素的发色、瞳色、衣着颜色词必须全部移除，否则 V5 会把整张图上成全彩。',
+      '默认首选 `nai-diffusion-5-curated`（亦可按用户指定切 `nai-diffusion-5-full`）。关键禁忌：非焦点元素的发色、瞳色、衣着颜色词必须全部移除，否则 V5 会把整张图上成全彩。',
     decontaminationTip:
       '仅保留唯一焦点色（如 crimson scarf / golden eyes），并移除所有其他颜色形容词。',
     fineTuningKnobs: [
@@ -135,7 +135,7 @@ export const V5_STYLE_BLUEPRINTS: Record<V5StyleBlueprintId, V5StyleBlueprint> =
     promptBaseline:
       '1 luminous scenic lead (1.2 to 1.3) + 3 to 5 soft-lighting and environmental illustrators stepped down from 0.9 to 0.5, with background architecture and lighting cues in natural language',
     notes:
-      '当优先追求极净商业光影与角色氛围时切换至 `nai-diffusion-5-curated`（~703 有效 token）；把建筑空间、时间段光影和镜头关系写在自然语言段。',
+      '默认首选 `nai-diffusion-5-curated`（~703 有效 token，极净商业光影与角色氛围）；把建筑空间、时间段光影和镜头关系写在自然语言段。',
     decontaminationTip:
       '若画师自带无关奇幻盔甲/光环/舰装等 IP 污染，使用 `-2.5::specific_item::` 定点剔除，不必丢弃该画师笔触。',
     fineTuningKnobs: [
@@ -150,7 +150,7 @@ export const V5_STYLIST_RESOURCE_URI = 'novelai://skills/v5-stylist';
 
 export const V5_STYLIST_FULL_GUIDE = `# novelai-v5-stylist
 
-Engineer high-recognizability, bespoke visual styles and production-ready prompt packages for NovelAI Diffusion V5 (\`nai-diffusion-5-full\` and \`nai-diffusion-5-curated\`) by combining de-homogenized quality settings, stepped artist weight mixes, physical medium anchors, and natural-language composition direction.
+Engineer high-recognizability, bespoke visual styles and production-ready prompt packages for NovelAI Diffusion V5 (\`nai-diffusion-5-curated\` by default, plus \`nai-diffusion-5-full\`) by combining de-homogenized quality settings, stepped artist weight mixes, physical medium anchors, and natural-language composition direction.
 
 ## When to Use
 
@@ -166,7 +166,7 @@ Engineer high-recognizability, bespoke visual styles and production-ready prompt
 
 Choose the model variant and generation settings before writing prompt tokens, because V5 default presets actively push images toward a uniform semi-painterly anime finish:
 
-- Select \`nai-diffusion-5-full\` (~1471 effective token limit) as the default for experimental mediums, graphic design, print textures, niche art movements, and broad artist vocabularies. Switch to \`nai-diffusion-5-curated\` (~703 effective token limit) only when prioritizing ultra-clean, focused commercial character lighting.
+- Select \`nai-diffusion-5-curated\` (~703 effective token limit; omit \`model\` in MCP calls unless the user explicitly asks for another variant) as the default for cleaner anatomy, refined lighting, and cohesive stylized aesthetics. Switch to \`nai-diffusion-5-full\` (~1471 effective token limit) only when the user explicitly requests V5 Full, requires niche uncurated artist vocabularies, or embeds extra-long quoted text (>703 prompt tokens / up to 750 characters). Never downgrade to V4.5 unless requested by the user.
 - Turn **OFF** \`Add Quality Tags\` (\`quality_preset: "none"\`, or wrap \`[[very aesthetic]]\` in double brackets if kept) whenever building a stylized or analog aesthetic, because default quality tags override subtle medium textures.
 - Set \`Undesired Content\` preset to \`light\` or \`none\` (\`uc_preset: "light"\` / \`"none"\` with a custom negative list) whenever using optical or print effects such as \`chromatic aberration\`, \`halftone\`, \`dithering\`, or film grain, since the \`heavy\` preset silently suppresses those tags.
 
@@ -191,10 +191,10 @@ NovelAI V5 is highly sensitive to artist weights (shifts of \`0.05\` to \`0.10\`
 
 Use these parameterized blueprints as starting baselines when matching an aesthetic family, and adjust weights in \`0.05\` increments:
 
-- **Pop Halftone Graphic Poster (\`V5 Full\`)**: \`1.3::halftone::, 1.2::screentone::, graphic design, flat color, bold outline, limited palette, 1.15::omutatsu::, 0.8::umemaro::, 0.6::uekura eku::, 0.45::mochizuki kei::, 0.2::rolua::\`
-- **Faux Nihonga & Mineral Watercolor (\`V5 Full\`)**: \`faux traditional media, nihonga, watercolor (medium), ink (medium), shikishi, muted color, pale color, fine outline\` + 1 structural illustrator (\`1.0\`) + 1 botanical/painterly artist (\`0.35\`)
-- **90s Retro Cel & Production Keyframe (\`V5 Full\`, \`Light\` UC)**: \`year 1995, anime screencap, production art, animation paper, color trace, anime coloring, chromatic aberration, retro artstyle\`
-- **High-Contrast Etching & Dramatic Spot Color (\`V5 Full\` or \`V5 Curated\`)**: \`ink (medium), nib pen (medium), ligne claire, high contrast, partially colored, spot color, monochrome\` + strictly one focal accent color named in the scene description
+- **Pop Halftone Graphic Poster (\`V5 Curated\`)**: \`1.3::halftone::, 1.2::screentone::, graphic design, flat color, bold outline, limited palette, 1.15::omutatsu::, 0.8::umemaro::, 0.6::uekura eku::, 0.45::mochizuki kei::, 0.2::rolua::\`
+- **Faux Nihonga & Mineral Watercolor (\`V5 Curated\`)**: \`faux traditional media, nihonga, watercolor (medium), ink (medium), shikishi, muted color, pale color, fine outline\` + 1 structural illustrator (\`1.0\`) + 1 botanical/painterly artist (\`0.35\`)
+- **90s Retro Cel & Production Keyframe (\`V5 Curated\`, \`Light\` UC)**: \`year 1995, anime screencap, production art, animation paper, color trace, anime coloring, chromatic aberration, retro artstyle\`
+- **High-Contrast Etching & Dramatic Spot Color (\`V5 Curated\`)**: \`ink (medium), nib pen (medium), ligne claire, high contrast, partially colored, spot color, monochrome\` + strictly one focal accent color named in the scene description
 - **Atmospheric Story & Scenic Concept CG (\`V5 Curated\`)**: Combine 1 luminous scenic lead (\`1.2\` to \`1.3\`) with 3 to 5 soft-lighting and environmental illustrators stepped down from \`0.9\` to \`0.5\`, keeping background architecture and lighting cues in natural language.
 
 ### 4. Direct Composition and Typography in Natural Language
@@ -222,6 +222,7 @@ Eliminate residual generic AI sheen and artist-coupled artifacts before finalizi
 
 ## MCP Parameter Mapping (Quick Reference)
 
+- Default model: \`nai-diffusion-5-curated\` (omit \`model\` unless the user explicitly asks for another variant; never downgrade to V4.5 on your own)
 - Strip quality tags: \`quality_preset: "none"\`
 - Preserve halftone/chromatic aberration/grain: \`uc_preset: "light"\` or \`"none"\`
 - Guidance (\`scale\`): painterly/analog \`3.5 - 4.8\`, sharp graphic/poster/typography \`5.0 - 6.5\`
@@ -231,7 +232,7 @@ Eliminate residual generic AI sheen and artist-coupled artifacts before finalizi
 
 const TOPIC_SECTIONS: Record<Exclude<V5StylistTopic, 'full'>, string> = {
   workflow: `### V5 风格工程五步法（摘要）
-1. **选型与去默认滤镜**：实验材质/印刷/平面设计/小众画风用 \`nai-diffusion-5-full\`（~1471 token）；极净商业角色光影再用 \`nai-diffusion-5-curated\`（~703 token）。非写实或拟传统材质关掉质量标签（\`quality_preset: "none"\`）；含网点/色差/颗粒时用 \`uc_preset: "light"\` 或 \`"none"\`（\`heavy\` 会吞掉这些效果）。
+1. **选型与去默认滤镜**：默认首选 \`nai-diffusion-5-curated\`（~703 token，调用出图时直接省略 \`model\` 参数即可，严禁擅自改传 V4.5 或 V5 Full）；仅在用户明确要求 \`V5 Full\` 或需超长引号文字排版（>703 token / 最多 750 字符）时再切 \`nai-diffusion-5-full\`。非写实或拟传统材质关掉质量标签（\`quality_preset: "none"\`）；含网点/色差/颗粒时用 \`uc_preset: "light"\` 或 \`"none"\`（\`heavy\` 会吞掉这些效果）。
 2. **先锚定物理媒介、流派与色板**：把 \`traditional media / faux traditional media / mixed media\` + 具体工具（\`watercolor (medium)\` / \`ink (medium)\` / \`nib pen (medium)\`）+ 线条/流派 + 色板限制（\`limited palette\` / \`spot color\`）+ 印刷纹理权重（\`1.3::halftone::\`）放在 \`base_prompt\` 最前面。
 3. **三阶画师权重链（骨架 -> 特征 -> 釉彩）**：\`1.0~1.25\` 首位定解剖与剪影 -> \`0.45~0.85\` 中段 2~4 位调五官与衣褶 -> \`0.15~0.30\` 末位微剂量借色感与笔触；按 \`0.05\` 步进微调。
 4. **自然语言导演构图与排版**：紧跟标签段用清晰英/日自然语言描述镜头、负空间、分镜和引号内文字（\`"..."\`，V5 Full 支持最多 750 字符）；多人或漫画页把角色拆进 \`characters\` 槽位配坐标。
@@ -307,6 +308,7 @@ export function buildV5StylistPromptMessage(args: {
   if (args.subject?.trim()) requirements.push(`- 画面主题/内容：${args.subject.trim()}`);
   if (args.aesthetic?.trim()) requirements.push(`- 目标美学/风格参考：${args.aesthetic.trim()}`);
   if (args.variant?.trim()) requirements.push(`- 指定模型变体：${args.variant.trim()}`);
+  else requirements.push('- 默认模型变体：`nai-diffusion-5-curated`（调用 `generate_image` 时直接省略 `model` 参数即可，勿擅自改传 V4.5 或 V5 Full）');
 
   const taskHeader = requirements.length > 0
     ? `请严格遵循以下 \`novelai-v5-stylist\` 风格工程规范，为当前需求设计一套去同质化、高辨识度的 NovelAI V5 提示词包（包含 5 段完整结构），并在用户要求出图时直接按该参数调用 \`generate_image\`：\n${requirements.join('\n')}`

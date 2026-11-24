@@ -84,8 +84,8 @@ const v3 = {
 export const MODEL_REGISTRY: Readonly<Record<Model, ModelCapability>> = {
   'nai-diffusion-5-curated': {
     ...v5,
-    inpaintingModel: 'nai-diffusion-4-5-curated-inpainting',
-    inpaintingFallbackNotice: 'V5 Curated 官方无独立 inpainting 模型，已自动回退为 nai-diffusion-4-5-curated-inpainting（角色上限按 V4.5 限制为 6 个）。',
+    inpaintingModel: 'nai-diffusion-5-full-inpainting',
+    inpaintingFallbackNotice: 'V5 Curated 官方无独立 inpainting 模型，已自动使用同代 nai-diffusion-5-full-inpainting。',
   },
   'nai-diffusion-5-full': { ...v5, inpaintingModel: 'nai-diffusion-5-full-inpainting' },
   'nai-diffusion-5-full-medium': {
@@ -134,7 +134,7 @@ export function resolveGenerationModel(value?: unknown, action: Action = 'genera
   return {
     requestedModel,
     model: capability.inpaintingModel,
-    capability: fallbackNotice ? MODEL_REGISTRY['nai-diffusion-4-5-curated'] : capability,
+    capability: fallbackNotice ? MODEL_REGISTRY['nai-diffusion-5-full'] : capability,
     fallbackNotice,
   };
 }

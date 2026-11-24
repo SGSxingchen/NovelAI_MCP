@@ -172,21 +172,25 @@ test('保留旧的预设参数、控制图字段与原始 Buffer 调用', async 
   assert.equal(p.controlnet_strength, 0.5);
 });
 
-test('局部重绘按实际模型回退并限制角色，请求只在重绘强度小于一时带嵌套图生图', async (t) => {
+test('局部重绘按实际模型回退并校验角色上限，请求只在重绘强度小于一时带嵌套图生图', async (t) => {
   const { client, requests } = await mockNovelAI(t);
+  const sevenChars = Array.from({ length: 7 }, () => ({ prompt: 'rose', uc: '', center: { x: 0.5, y: 0.5 }, enabled: true }));
   const input = { prompt: 'rose', action: 'infill', image, mask: image, sampler: 'ddim', seed: 355 };
-  const result = await client.generateImage({ ...input, inpaintImg2ImgStrength: 0.63, noise: 0.15 });
+  const result = await client.generateImage({
+    ...input, inpaintImg2ImgStrength: 0.63, noise: 0.15, characterPrompts: sevenChars, transparent_background: true,
+  });
   assert.equal(result.requestedModel, 'nai-diffusion-5-curated');
-  assert.equal(result.model, 'nai-diffusion-4-5-curated-inpainting');
-  assert.match(result.fallbackNotice, /角色上限按 V4\.5 限制为 6 个/);
+  assert.equal(result.model, 'nai-diffusion-5-full-inpainting');
+  assert.match(result.fallbackNotice, /nai-diffusion-5-full-inpainting/);
   let p = requests.at(-1).body.parameters;
-  assert.equal(p.params_version, 3);
-  assert.equal(p.scale, 5);
-  assert.equal(p.steps, 28);
+  assert.equal(p.params_version, 4);
+  assert.equal(p.scale, 7);
+  assert.equal(p.steps, 23);
   assert.equal(p.image, image);
   assert.equal(p.mask, image);
   assert.equal(p.add_original_image, true);
   assert.equal(p.sampler, 'k_euler_ancestral');
+  assert.equal(p.straight_alpha, true);
   assert.equal(p.inpaintImg2ImgStrength, 0.63);
   assert.equal(p.noise, 0.15);
   assert.deepEqual(p.img2img, { strength: 0.63, color_correct: true, noise: 0.15, extra_noise_seed: 355 });
@@ -206,9 +210,10 @@ test('局部重绘按实际模型回退并限制角色，请求只在重绘强�
   assert.equal(p.noise, 0);
   assert.equal('img2img' in p, false);
 
-  const characterPrompts = Array.from({ length: 7 }, () => ({ prompt: 'rose', uc: '', center: { x: 0.5, y: 0.5 }, enabled: true }));
-  await assert.rejects(client.generateImage({ ...input, characterPrompts }), /6/);
-  await assert.rejects(client.generateImage({ ...input, transparent_background: true }), /透明/);
+  const tooManyV5Chars = Array.from({ length: 33 }, () => ({ prompt: 'rose', uc: '', center: { x: 0.5, y: 0.5 }, enabled: true }));
+  await assert.rejects(client.generateImage({ ...input, characterPrompts: tooManyV5Chars }), /32/);
+  await assert.rejects(client.generateImage({ ...input, model: 'nai-diffusion-4-5-curated', characterPrompts: sevenChars }), /6/);
+  await assert.rejects(client.generateImage({ ...input, model: 'nai-diffusion-4-5-curated', transparent_background: true }), /透明/);
   assert.equal(requests.length, 3);
 });
 

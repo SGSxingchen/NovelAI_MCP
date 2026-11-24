@@ -314,7 +314,7 @@ export function createStudioAndLibrary(ctx) {
     $('studioUcPreset').disabled = Boolean(cap.isMediumLocked);
 
     const isInpaint = local.mode === 'inpaint_image';
-    const effectiveTransparent = cap.supportsTransparent && !(isInpaint && model === 'nai-diffusion-5-curated');
+    const effectiveTransparent = cap.supportsTransparent;
     $('studioTransparentWrap').hidden = !effectiveTransparent;
     if (!effectiveTransparent) $('studioTransparent').checked = false;
 
@@ -331,7 +331,7 @@ export function createStudioAndLibrary(ctx) {
 
     // 多角色支持
     const genLike = local.mode === 'generate_image' || local.mode === 'img2img' || local.mode === 'inpaint_image';
-    const maxChars = isInpaint && model === 'nai-diffusion-5-curated' ? 6 : cap.maxCharacters;
+    const maxChars = cap.maxCharacters;
     $('studioCharactersCard').hidden = !genLike || maxChars === 0;
     if (maxChars > 0) {
       $('studioCharsDesc').textContent = `当前模型支持最多 ${maxChars} 个独立角色，可配独立负面词与 (X, Y) 画面站位。`;
@@ -356,7 +356,7 @@ export function createStudioAndLibrary(ctx) {
     else if (model.startsWith('nai-diffusion-4-5')) notices.push('V4.5 支持多角色、Vibe 氛围参考与精确角色/画风参考');
     else if (cap.isV3) notices.push('V3 经典模型：支持 SMEA / 动态阈值，不支持独立角色框');
     if (isInpaint && model === 'nai-diffusion-5-curated') {
-      notices.push('局部重绘会自动回退为 V4.5 Curated Inpainting');
+      notices.push('局部重绘会自动使用同代 V5 Full Inpainting');
     }
     $('studioModelNotice').textContent = notices.join(' · ') || '支持完整参数微调与自动归档';
 

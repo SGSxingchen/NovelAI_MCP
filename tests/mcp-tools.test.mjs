@@ -371,9 +371,55 @@ testBothModes('get_v5_stylist_guide 返回完整指南、分章节与预设风�
   assert.equal(full.isError, undefined);
   assert.match(full.content[0].text, /novelai-v5-stylist/);
   assert.match(full.content[0].text, /1\.3::halftone::/);
+  assert.match(full.content[0].text, /Select `nai-diffusion-5-curated`[\s\S]*as the default/);
 
   const bp = await invoke('get_v5_stylist_guide', { topic: 'decontaminate', blueprint: 'retro_90s_cel' });
   assert.equal(bp.isError, undefined);
+  assert.match(bp.content[0].text, /推荐模型.*`nai-diffusion-5-curated`/);
   assert.match(bp.content[0].text, /year 1995/);
   assert.match(bp.content[0].text, /-3::glossy skin/);
+});
+
+testBothModes('省略 model 但带精确参考或 Vibe 时自动临时路由并在回执提醒切回 V5 Curated', async (t, connectTools) => {
+  const archiveDir = await mkdtemp(join(tmpdir(), 'nai-auto-ref-'));
+  t.after(() => rm(archiveDir, { recursive: true, force: true }));
+  const incoming = [];
+  const invoke = await connectTools({
+    archiveDir,
+    client: {
+      encodeVibe: async ({ model }) => {
+        assert.equal(model, v45);
+        return encoded;
+      },
+      generateImage: async params => {
+        incoming.push(params);
+        return result(params);
+      },
+    },
+  });
+
+  const preciseRes = await invoke('generate_image', {
+    base_prompt: '1girl, solo',
+    character_references: [{ image: source, type: 'character' }],
+  });
+  assert.equal(preciseRes.isError, undefined, preciseRes.content[0]?.text);
+  assert.equal(incoming[0].model, v45);
+  assert.match(preciseRes.content[0].text, /character_references[\s\S]*后续普通生图或 img2img 请继续省略 model 以默认走 nai-diffusion-5-curated/);
+
+  const vibeRes = await invoke('generate_image', {
+    base_prompt: '1girl, solo',
+    vibe_references: [{ image: source }],
+  });
+  assert.equal(vibeRes.isError, undefined, vibeRes.content[0]?.text);
+  assert.equal(incoming[1].model, v45);
+  assert.match(vibeRes.content[0].text, /vibe_references[\s\S]*后续普通生图或 img2img 请继续省略 model 以默认走 nai-diffusion-5-curated/);
+
+  // 显式指定不支持精确参考的模型时仍保持严格报错
+  const explicitFail = await invoke('generate_image', {
+    base_prompt: '1girl, solo',
+    model: DEFAULT_MODEL,
+    character_references: [{ image: source, type: 'character' }],
+  });
+  assert.equal(explicitFail.isError, true);
+  assert.match(explicitFail.content[0].text, /精确参考仅支持 V4\.5/);
 });

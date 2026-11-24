@@ -117,7 +117,7 @@ npm run start:sse
 
 | 模型 ID | 说明 | 特性摘要 |
 |---------|------|----------|
-| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（**默认**） | 最多 32 角色、透明背景；局部重绘自动回退至 `nai-diffusion-4-5-curated-inpainting`（6 角色） |
+| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（**默认**） | 最多 32 角色、透明背景；局部重绘自动使用同代 `nai-diffusion-5-full-inpainting`（保留 32 角色与透明背景） |
 | `nai-diffusion-5-full` | NovelAI Diffusion V5 Full | 最多 32 角色、透明背景、独立 inpainting |
 | `nai-diffusion-5-full-medium` | NovelAI Diffusion V5 Full Medium | 硬锁定 14 步 / `k_euler_ancestral` / `cfg_rescale=0` / `uc_preset=heavy` |
 | `nai-diffusion-4-5-full` | NovelAI Diffusion V4.5 Full | 最多 6 角色、精确参考（Precise Reference）、Vibe Transfer、Variety+ |
