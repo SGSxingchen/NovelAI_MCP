@@ -365,6 +365,11 @@ testBothModes('出图自动对比前后订阅余额并回报每张消耗 Anlas�
   const singleMeta = await invoke('list_archived_images', { image_id: singleId });
   const parsedMeta = JSON.parse(singleMeta.content[1].text);
   assert.equal(parsedMeta.anlas_spent, 20);
+  assert.equal(singleMeta.content[2]?.type, 'image');
+  assert.equal(singleMeta.content[2]?.mimeType, 'image/webp');
+
+  const metaOnly = await invoke('list_archived_images', { image_id: singleId, include_image: false });
+  assert.equal(metaOnly.content.some(item => item.type === 'image'), false);
 
   const paidMulti = await invoke('generate_image', { base_prompt: 'multi', n_samples: 2 });
   assert.equal(paidMulti.isError, undefined);

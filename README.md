@@ -141,7 +141,7 @@ npm run start:sse
 | `encode_vibe` | Vibe 风格编码 | 为 V4 / V4.5 预编码参考图并返回可跨重启复用的 `vibe_id`（落盘 `<archiveDir>/.vibe-cache` 并合并并发请求） |
 | `suggest_tags` | 标签建议 | 按提示词片段与模型返回 `en` / `jp` 标签补全列表 |
 | `get_subscription` | 订阅与余额查询 | 返回订阅等级、到期时间、固定/购买 Anlas 余额与 V5 用量条信息 |
-| `list_archived_images` | 图库检索 | 倒序列出最近归档图片，或按 `image_id` / 短链读取单图元数据与 PNG 内嵌参数 |
+| `list_archived_images` | 图库检索与看图 | 倒序列出最近归档图片，或按 `image_id` / 短链读取单图元数据、PNG 内嵌参数及高清 WebP 画面像素（含私密上传参考图，支持 `include_image` 开关） |
 
 ## 📊 传输模式对比
 

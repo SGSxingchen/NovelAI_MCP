@@ -715,9 +715,16 @@ test('管理台归档原始参考图并允许 MCP 按 ID 读取', { timeout: 20_
   const detail = await rpcResult(postMcp(origin, '/mcp', {
     id: 3, method: 'tools/call', params: { name: 'nai_execute', arguments: { action: 'list_archived_images', params: { image_id: id } } },
   }, headers));
-  const metadata = JSON.parse(detail.content.at(-1).text);
+  const textBlock = detail.content.find(entry => entry.type === 'text');
+  const imageBlock = detail.content.find(entry => entry.type === 'image');
+  const metadata = JSON.parse(textBlock.text);
   assert.equal(metadata.image_id, id);
   assert.equal(metadata.image_url, undefined);
+  assert.ok(imageBlock, '单张私密参考图应返回图像内容块供模型查看画面');
+  assert.equal(imageBlock.mimeType, 'image/webp');
+  const previewMeta = await sharp(Buffer.from(imageBlock.data, 'base64')).metadata();
+  assert.equal(previewMeta.format, 'webp');
+  assert.ok(previewMeta.width > 0 && previewMeta.height > 0);
 });
 
 test('禁用管理台时仅保留 MCP 及动态链接服务', { timeout: 12_000 }, async t => {

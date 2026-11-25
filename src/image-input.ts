@@ -265,6 +265,21 @@ export function prepareV3VibeImage(buffer: Buffer): Promise<Buffer> {
   return blackLetterbox(buffer, 448, 448);
 }
 
+const MCP_PREVIEW_MAX_EDGE = 1280;
+
+export async function prepareMcpPreviewImage(buffer: Buffer): Promise<{ buffer: Buffer; mimeType: 'image/webp' }> {
+  const verified = verifyInputImage(buffer);
+  const meta = await pipeline(verified).metadata();
+  if (!meta.width || !meta.height || !meta.format) throw new Error('无法读取图像的宽高和格式');
+  validateSize(meta.width, meta.height);
+  const webp = await pipeline(verified)
+    .rotate()
+    .resize({ width: MCP_PREVIEW_MAX_EDGE, height: MCP_PREVIEW_MAX_EDGE, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 86 })
+    .toBuffer();
+  return { buffer: webp, mimeType: 'image/webp' };
+}
+
 function expandMaskGrid(grid: Buffer, width: number, height: number): Promise<Buffer> {
   return sharp(grid, { raw: { width: width / 8, height: height / 8, channels: 1 } })
     .timeout({ seconds: TIMEOUT_MS / 1000 })

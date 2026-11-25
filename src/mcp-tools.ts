@@ -12,7 +12,7 @@ import {
 import type { ArchiveMetadataInput } from './image-archive.js';
 import {
   ensurePngBuffer, extractPngTextMetadata, fitImageToMaxPixels, generateMaskFromRegions, getImageDimensions,
-  prepareImg2ImgImage, prepareInpaintMask, preparePreciseReferenceImage, prepareV3VibeImage, resolveImageInput,
+  prepareImg2ImgImage, prepareInpaintMask, prepareMcpPreviewImage, preparePreciseReferenceImage, prepareV3VibeImage, resolveImageInput,
 } from './image-input.js';
 import {
   ARTIST_ENTRY_SCHEMA, ARTIST_MIX_SYNTAXES, LibraryStore, PROMPT_ENTRY_SCHEMA, PROMPT_KINDS, formatArtistMix,
@@ -219,8 +219,9 @@ const TOOLS = [
     limit: { ...bounded('integer', '最多返回的标签数，默认 20。', 1, 100), default: 20 },
   }, ['prompt'], true),
   tool('get_subscription', '免费只读查询（0 Anlas）：查看当前 NovelAI 订阅档位（是否 Opus）、到期时间、固定及购买的 Anlas 余额和 V5 额度条状态。调用前不确定是否会扣点时可先查此工具。', {}, [], true),
-  tool('list_archived_images', `免费只读查询（0 Anlas）：查询归档图片。指定 image_id 时返回单图元数据与 PNG 内嵌参数，否则按时间倒序列出最近归档。${IMAGE_RECEIPT}`, {
+  tool('list_archived_images', `免费只读查询（0 Anlas）：查询归档图片。指定 image_id 时返回单图元数据、PNG 内嵌参数及高清画面像素（含私密上传的参考图，模型可直接看图识别人设、服饰、构图与画风）；未指定时按时间倒序列出最近归档。${IMAGE_RECEIPT}`, {
     image_id: textField('归档回执中的 43 位 image_id，或本站的完整图片链接。'),
+    include_image: { ...flag('指定 image_id 时是否一并返回图片画面内容供模型查看（默认开启；仅需纯文本元数据时可设为 false）。'), default: true },
     limit: { ...bounded('integer', '返回最近几张图，默认 10，最多 50。', 1, 50), default: 10 },
   }, [], true, false),
   tool('get_v5_stylist_guide', '免费只读查询（0 Anlas）：获取内置 novelai-v5-stylist 风格工程技能指南，包含 V5 Full/Curated 选型、去默认塑料滤镜、物理媒介锚点、三阶画师权重链、5 套参数化风格蓝图、自然语言构图排版、反污染负权重与 Guidance 标定规则。', {
@@ -265,10 +266,10 @@ const DISCOVERY_MODULES = [
     ],
   },
   {
-    module: 'assist', summary: '标签联想、订阅额度与历史归档', actions: [
+    module: 'assist', summary: '标签联想、订阅额度与历史归档看图', actions: [
       { name: 'suggest_tags', summary: '联想提示词标签' },
       { name: 'get_subscription', summary: '查订阅与额度' },
-      { name: 'list_archived_images', summary: '查历史归档' },
+      { name: 'list_archived_images', summary: '查历史归档或查看单张参考图画面' },
     ],
   },
   {
@@ -911,7 +912,7 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
     return result;
   }
 
-  async function archive(args: { image_id?: string; limit?: number }): Promise<CallToolResult> {
+  async function archive(args: { image_id?: string; include_image?: boolean; limit?: number }): Promise<CallToolResult> {
     if (!archiveDir) throw new Error('当前服务未配置图片归档目录');
     if (args.image_id !== undefined) {
       const id = extractArchiveId(args.image_id, imageOrigin);
@@ -923,6 +924,10 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         ...(ext === 'png' ? { png_metadata: extractPngTextMetadata(buffer) } : {}),
       });
       if (url) result.content.unshift(asText(`[查看或下载图片](${url})`));
+      if (args.include_image !== false) {
+        const preview = await prepareMcpPreviewImage(buffer);
+        result.content.push({ type: 'image', mimeType: preview.mimeType, data: preview.buffer.toString('base64') });
+      }
       return result;
     }
     const images = await listArchivedImages(archiveDir, args.limit ?? 10, { publicOnly: true });
