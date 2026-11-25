@@ -19,7 +19,8 @@ import {
 } from './library-store.js';
 import type { ArtistSearch, PromptSearch } from './library-store.js';
 import {
-  alignDimension, ENCODE_VIBE_MODELS, MAX_SEED, MAX_VIBE_REFERENCES, MODEL_REGISTRY, resolveGenerationModel, validateGenerationFeatures,
+  alignDimension, ENCODE_VIBE_MODELS, MAX_PRECISE_REFERENCES, MAX_SEED, MAX_VIBE_REFERENCES, MODEL_REGISTRY,
+  resolveGenerationModel, validateGenerationFeatures,
 } from './model-registry.js';
 import { DEFAULT_UPSCALE_MODEL, type NovelAIClient } from './novelai-client.js';
 import {
@@ -48,7 +49,7 @@ const UPSCALE_MAX_PIXELS = 1048576;
 const MAX_REFERENCE_BYTES = 40 * 1024 * 1024;
 const IMAGE_INPUT = '接受归档 ID、本站归档图片链接、公网 HTTPS 图片链接、图像 Base64 或图像数据 URI。仅标准输入输出模式支持本地文件。';
 const IMAGE_RECEIPT = '展示结果中的「查看或下载图片」公网链接，每张图都保留对应链接。';
-const MODEL_POLICY = '默认固定使用 nai-diffusion-5-curated（V5 Curated）；除非用户明确点名其他模型，否则一律省略 model 参数（严禁凭旧记忆或省点考量自行传 V4.5 或 V5 Full，即使上一轮因参考图用过旧模型，后续普通生图或 img2img 也必须省略 model 回到 V5 Curated）。';
+const MODEL_POLICY = '默认使用 nai-diffusion-5-curated（V5 Curated）。除非用户明确指定其他模型，请省略 model，包括带 character_references 的文生图和图生图。省略 model 时，带精确参考的局部重绘临时使用 V4.5，带 vibe_references 的请求按兼容性临时选用旧模型。';
 const COST_POLICY = '计费参考说明：默认出图使用 V5 Curated（优先消耗独立 V5 额度条，耗尽或超规格时转扣 Anlas；请勿为了省点擅自降级为旧模型）。Opus 订阅下旧代模型满足总像素 ≤1,048,576（如 832×1216、1216×832、1024×1024）、steps ≤28、n_samples = 1 且未附加收费参考时为 0 Anlas，非 Opus 订阅或附加收费参考按规格扣 Anlas；V5 系列优先消耗独立 V5 额度条，耗尽（isNegative）或超规格时转扣 Anlas。出图回执会汇报本次实际消耗的 Anlas 与余额。';
 const V5_STYLIST_HINT = '设计 NovelAI V5 独特画风、去 AI 塑料感、配置阶梯画师权重、海报排版或排查风格偏移时，可先免费调用 get_v5_stylist_guide 获取 V5 风格工程指南（默认同样走 V5 Curated）。';
 
@@ -80,7 +81,7 @@ const generationFields = {
       required: ['prompt'],
     },
   },
-  model: { ...choice('出图模型，默认 nai-diffusion-5-curated（V5 Curated）。除非用户明确点名其他模型，否则请省略此参数（严禁凭旧习惯或省点考量自行填 V4.5 或 V5 Full；若省略此参数但传入了仅旧模型支持的 character_references 或 vibe_references，服务端会自动临时路由并在回执说明，后续普通出图请继续省略 model）。', IMAGE_MODELS), default: DEFAULT_MODEL },
+  model: { ...choice(`出图模型。${MODEL_POLICY}`, IMAGE_MODELS), default: DEFAULT_MODEL },
   steps: bounded('integer', '采样步数（1-50），由模型决定默认值（V5 默认 23，V5 Full Medium 固定 14，V4.5 默认 28）。超过 28 步会按规格增加额度或 Anlas 消耗。', 1, 50),
   seed: bounded('integer', '随机种子，省略或传非正数时随机生成。', Number.MIN_SAFE_INTEGER, MAX_SEED),
   n_samples: bounded('integer', '出图数量（1-8 张）。Opus 仅 1 张在免费范围内，大于 1 张开始扣 Anlas。', 1, 8),
@@ -102,14 +103,16 @@ const generationFields = {
   uncond_scale: bounded('number', '负面提示词强度，范围 0 至 1.5。', 0, 1.5),
   legacy_uc: flag('使用旧版负面提示词处理。V4 默认开启。'),
   character_references: {
-    type: 'array', description: 'V4.5 精确参考，与 vibe_references 互斥。必扣 Anlas（即使 Opus 订阅，每张参考图每张成图额外约 +5 Anlas）。',
+    type: 'array', maxItems: MAX_PRECISE_REFERENCES,
+    description: '精确参考。文生图和图生图请省略 model 以使用默认 V5 Curated，带精确参考的局部重绘使用 V4.5。与 vibe_references 互斥。V4.5 每张参考图每张成图额外约消耗 5 Anlas。',
     items: {
       type: 'object',
       properties: {
         image: textField(IMAGE_INPUT),
-        type: choice('参考类型。', PRECISE_REFERENCE_TYPES),
-        strength: unit('参考影响强度，默认 1。'),
-        fidelity: unit('对参考图的保真度，默认 1。'),
+        type: choice('参考类型：character（角色）、style（画风）、outfit / costume（V5 服装参考）、character&style（角色+画风）、character_mainoutfit、character&style_anyoutfit、delta。', [...PRECISE_REFERENCE_TYPES, 'outfit']),
+        prefer_same_outfit: flag('V5 保留同款服装开关（仅对 character 和 character&style 生效）：开启后更严格还原参考角色的服装。character 默认关闭，character&style 默认开启。'),
+        strength: bounded('number', '参考影响强度，默认 1。V5 支持 0 至 5（画风迁移不够明显时可调高至 1.5~5），V4.5 支持 0 至 1。', 0, 5),
+        fidelity: unit('仅 V4.5 使用的对参考图保真度（默认 1）；V5 已移除此滑块并自动忽略。'),
       },
       required: ['image', 'type'],
     },
@@ -166,7 +169,7 @@ const TOOLS = [
     color_correct: flag('校正颜色以贴近原图，默认开启。'),
     extra_noise_seed: bounded('integer', '额外噪声种子，默认沿用出图种子。', 1, MAX_SEED),
   }, ['base_prompt', 'source_image']),
-  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。默认 V5 Curated 会自动使用同代 V5 Full Inpainting。${MODEL_POLICY}${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
+  tool('inpaint_image', `重绘图中指定区域。提供 mask_image 或至少一个 mask_regions。普通局部重绘默认使用 V5 Full 的局部重绘模型。${MODEL_POLICY}${V5_STYLIST_HINT}${COST_POLICY}${IMAGE_RECEIPT}`, {
     ...sourceFields,
     mask_image: textField(`黑色保留，白色重绘。与 mask_regions 同时提供时使用此遮罩。${IMAGE_INPUT}`),
     mask_regions: {
@@ -682,11 +685,11 @@ export function createActionExecutor(options: ActionExecutorOptions) {
     let autoModelNotice: string | undefined;
     const hasPrecise = Boolean(params.characterReferences?.length);
     const hasVibes = Boolean(params.vibeReferences?.length);
-    if (params.model === undefined && (hasPrecise !== hasVibes)) {
-      if (hasPrecise) {
+    if (params.model === undefined) {
+      if (action === 'infill' && hasPrecise && !hasVibes) {
         params.model = 'nai-diffusion-4-5-full';
-        autoModelNotice = '因传入了仅 V4.5 支持的 character_references 且未指定 model，本次已自动临时改用 nai-diffusion-4-5-full；后续普通生图或 img2img 请继续省略 model 以默认走 nai-diffusion-5-curated。';
-      } else {
+        autoModelNotice = '因 V5 局部重绘暂不支持 character_references 且未指定 model，本次已自动临时改用 nai-diffusion-4-5-full；后续文生图、图生图（含精确参考）及普通局部重绘请继续省略 model 以默认走 nai-diffusion-5-curated。';
+      } else if (hasVibes && !hasPrecise) {
         const firstVibeId = params.vibeReferences?.find(ref => ref.vibe_id)?.vibe_id;
         const cached = firstVibeId ? await vibeCache.getById(firstVibeId) : undefined;
         const fallbackVibeModel: Model = cached?.model ?? (action === 'infill' ? 'nai-diffusion-4-full' : 'nai-diffusion-4-5-full');
@@ -737,7 +740,9 @@ export function createActionExecutor(options: ActionExecutorOptions) {
 
     const precise: CharacterReferenceInput[] = [];
     for (const ref of params.characterReferences ?? []) {
-      const image = await preparePreciseReferenceImage(await readImage(ref.image));
+      const raw = await readImage(ref.image);
+      if (raw.length > MAX_REFERENCE_BYTES) throw new ActionInputError('参考图合计大于 40 MiB，请缩小图片或用 vibe_id 复用编码');
+      const image = await preparePreciseReferenceImage(raw, capability.preciseRefBucketResize ? 'bucket' : 'letterbox');
       reserve(image.length);
       precise.push({ ...ref, image: image.toString('base64') });
     }

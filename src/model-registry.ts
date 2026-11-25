@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { IMAGE_MODELS, resolveImageModel } from './types.js';
+import { IMAGE_MODELS, PRECISE_REFERENCE_TYPES, resolveImageModel } from './types.js';
 import type { Action, ImageGenerationParams, Model } from './types.js';
 
 export interface ModelCapability {
@@ -11,6 +11,11 @@ export interface ModelCapability {
   supportsVibeInInpaint: boolean;
   vibeRequiresEncode: boolean;
   supportsPreciseRef: boolean;
+  supportsPreciseRefInInpaint: boolean;
+  preciseRefBucketResize: boolean;
+  supportsPreciseRefFidelity: boolean;
+  preciseRefStrengthMax: number;
+  supportsOutfitRef: boolean;
   supportsTransparent: boolean;
   supportsSmea: boolean;
   supportsDecrisp: boolean;
@@ -32,7 +37,12 @@ const v5 = {
   supportsVibe: false,
   supportsVibeInInpaint: false,
   vibeRequiresEncode: false,
-  supportsPreciseRef: false,
+  supportsPreciseRef: true,
+  supportsPreciseRefInInpaint: false,
+  preciseRefBucketResize: true,
+  supportsPreciseRefFidelity: false,
+  preciseRefStrengthMax: 5,
+  supportsOutfitRef: true,
   supportsTransparent: true,
   supportsSmea: false,
   supportsDecrisp: false,
@@ -52,7 +62,11 @@ const v45 = {
   maxCharacters: 6,
   supportsVibe: true,
   vibeRequiresEncode: true,
-  supportsPreciseRef: true,
+  supportsPreciseRefInInpaint: true,
+  preciseRefBucketResize: false,
+  supportsPreciseRefFidelity: true,
+  preciseRefStrengthMax: 1,
+  supportsOutfitRef: false,
   supportsTransparent: false,
   varietyBase: 58,
   preferBrownian: true,
@@ -64,6 +78,8 @@ const v4 = {
   defaultScale: 5.5,
   supportsVibeInInpaint: true,
   supportsPreciseRef: false,
+  supportsPreciseRefInInpaint: false,
+  supportsPreciseRefFidelity: false,
   varietyBase: 19,
   legacyUcDefault: true,
 } as const;
@@ -89,7 +105,14 @@ export const MODEL_REGISTRY: Readonly<Record<Model, ModelCapability>> = {
   },
   'nai-diffusion-5-full': { ...v5, inpaintingModel: 'nai-diffusion-5-full-inpainting' },
   'nai-diffusion-5-full-medium': {
-    ...v5, defaultSteps: 14, isMediumLocked: true, inpaintingModel: 'nai-diffusion-5-full-medium-inpainting',
+    ...v5,
+    defaultSteps: 14,
+    isMediumLocked: true,
+    supportsPreciseRef: false,
+    preciseRefBucketResize: false,
+    preciseRefStrengthMax: 1,
+    supportsOutfitRef: false,
+    inpaintingModel: 'nai-diffusion-5-full-medium-inpainting',
   },
   'nai-diffusion-4-5-full': { ...v45, inpaintingModel: 'nai-diffusion-4-5-full-inpainting' },
   'nai-diffusion-4-5-curated': { ...v45, defaultScale: 5, inpaintingModel: 'nai-diffusion-4-5-curated-inpainting' },
@@ -102,6 +125,7 @@ export const MODEL_REGISTRY: Readonly<Record<Model, ModelCapability>> = {
 export const ENCODE_VIBE_MODELS = IMAGE_MODELS.filter(model => MODEL_REGISTRY[model].vibeRequiresEncode);
 export const MAX_SEED = 4294967288;
 export const MAX_VIBE_REFERENCES = 16;
+export const MAX_PRECISE_REFERENCES = 16;
 
 export function computeVarietySigma(base: number, width: number, height: number): number {
   return Math.ceil(base * Math.sqrt((4 * Math.floor(width / 8) * Math.floor(height / 8)) / (4 * 104 * 152)));
@@ -148,10 +172,33 @@ export function validateGenerationFeatures(params: ImageGenerationParams, capabi
   if (params.transparent_background && !capability.supportsTransparent) {
     throw new Error('实际出图模型不支持透明背景，请选择支持该功能的 V5 模型');
   }
-  const hasPrecise = Boolean(params.characterReferences?.length);
+  const preciseCount = params.characterReferences?.length ?? 0;
+  const hasPrecise = preciseCount > 0;
   const vibeCount = (params.vibeReferences?.length ?? 0) + (params.reference_image_multiple?.length ?? 0);
   if (hasPrecise && vibeCount > 0) throw new Error('精确参考与 Vibe Transfer 不能同时使用');
-  if (hasPrecise && !capability.supportsPreciseRef) throw new Error('精确参考仅支持 V4.5 模型');
+  if (preciseCount > MAX_PRECISE_REFERENCES) throw new Error(`精确参考最多支持 ${MAX_PRECISE_REFERENCES} 张参考图`);
+  if (hasPrecise && !capability.supportsPreciseRef) {
+    throw new Error(params.model === 'nai-diffusion-5-full-medium'
+      ? 'V5 Full Medium 不支持精确参考，请改用 V5 Curated、V5 Full 或 V4.5 模型'
+      : '精确参考仅支持 V5（Curated / Full）和 V4.5 模型');
+  }
+  if (hasPrecise && params.action === 'infill' && !capability.supportsPreciseRefInInpaint) {
+    throw new Error('V5 局部重绘暂不支持精确参考，请改用文生图/图生图或指定 V4.5 模型');
+  }
+  for (const ref of params.characterReferences ?? []) {
+    const rawType = ref.type === 'outfit' ? 'costume' : ref.type;
+    if (!PRECISE_REFERENCE_TYPES.includes(rawType)) throw new Error('不支持该精确参考类型');
+    if (ref.strength !== undefined) {
+      if (!Number.isFinite(ref.strength) || ref.strength < 0 || ref.strength > capability.preciseRefStrengthMax) {
+        throw new Error(`精确参考强度 必须在 0 到 ${capability.preciseRefStrengthMax} 之间`);
+      }
+    }
+    if (capability.supportsPreciseRefFidelity && ref.fidelity !== undefined) {
+      if (!Number.isFinite(ref.fidelity) || ref.fidelity < 0 || ref.fidelity > 1) {
+        throw new Error('精确参考忠实度 必须在 0 到 1 之间');
+      }
+    }
+  }
   if (vibeCount > MAX_VIBE_REFERENCES) throw new Error(`Vibe Transfer 最多支持 ${MAX_VIBE_REFERENCES} 张参考图`);
   if (vibeCount > 0 && !capability.supportsVibe) throw new Error('实际出图模型不支持 Vibe Transfer，请选择 V3、V4 或 V4.5');
   if (vibeCount > 0 && params.action === 'infill' && !capability.supportsVibeInInpaint) {

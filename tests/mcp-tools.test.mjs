@@ -7,6 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import sharp from 'sharp';
 import { createNovelAIMcpServer, getDisclosureMetrics, PROGRESSIVE_TOOL_COUNT } from '../dist/mcp-tools.js';
+import { NovelAIClient } from '../dist/novelai-client.js';
 import { DEFAULT_MODEL, IMAGE_MODELS } from '../dist/types.js';
 import { renderV5StylistGuide } from '../dist/v5-stylist.js';
 import { VibeCache } from '../dist/vibe-cache.js';
@@ -110,6 +111,16 @@ test('渐进式发现、描述和执行复用动作参数、风格指南与出�
 
   const described = jsonContent(await invoke('nai_describe', { actions: ['generate_image'] }));
   assert.deepEqual(described.actions[0].inputSchema, tools.find(tool => tool.name === 'generate_image').inputSchema);
+  const fields = described.actions[0].inputSchema.properties;
+  const precise = fields.character_references;
+  assert.match(fields.model.description, /请省略 model.*character_references/);
+  assert.equal(precise.maxItems, 16);
+  assert.deepEqual(precise.items.properties.type.enum, [
+    'character', 'style', 'costume', 'character&style', 'character_mainoutfit', 'character&style_anyoutfit', 'delta', 'outfit',
+  ]);
+  assert.equal(precise.items.properties.prefer_same_outfit.type, 'boolean');
+  assert.equal(precise.items.properties.strength.maximum, 5);
+  assert.equal(precise.items.properties.fidelity.maximum, 1);
   const stylist = { topic: 'decontaminate', blueprint: 'retro_90s_cel' };
   const stylistResult = await invoke('nai_describe', { guide: 'v5_stylist', ...stylist });
   assert.equal(stylistResult.content[0].text, renderV5StylistGuide(stylist));
@@ -380,46 +391,81 @@ testBothModes('get_v5_stylist_guide 返回完整指南、分章节与预设风�
   assert.match(bp.content[0].text, /-3::glossy skin/);
 });
 
-testBothModes('省略 model 但带精确参考或 Vibe 时自动临时路由并在回执提醒切回 V5 Curated', async (t, connectTools) => {
+testBothModes('精确参考默认走 V5 文生图和图生图，局部重绘临时走 V4.5，Vibe 路由保持兼容', async (t, connectTools) => {
   const archiveDir = await mkdtemp(join(tmpdir(), 'nai-auto-ref-'));
   t.after(() => rm(archiveDir, { recursive: true, force: true }));
   const incoming = [];
-  const invoke = await connectTools({
-    archiveDir,
-    client: {
-      encodeVibe: async ({ model }) => {
-        assert.equal(model, v45);
-        return encoded;
-      },
-      generateImage: async params => {
-        incoming.push(params);
-        return result(params);
-      },
-    },
+  const client = new NovelAIClient('test-key', { baseUrl: 'http://127.0.0.1' });
+  t.mock.method(client, 'request', async (path, body) => {
+    if (path === '/user/subscription') return { buffer: Buffer.from('{}') };
+    incoming.push({ path, body });
+    if (path === '/ai/encode-vibe') return { buffer: Buffer.from(encoded, 'base64') };
+    assert.equal(path, '/ai/generate-image');
+    return { buffer: png, contentType: 'image/png' };
   });
+  const invoke = await connectTools({ archiveDir, client });
 
-  const preciseRes = await invoke('generate_image', {
+  const precise = {
     base_prompt: '1girl, solo',
-    character_references: [{ image: source, type: 'character' }],
+    character_references: [
+      { image: source, type: 'outfit', strength: 5 },
+      { image: source, type: 'character', prefer_same_outfit: true },
+    ],
+  };
+  for (const [tool, action, args] of [
+    ['generate_image', 'generate', precise],
+    ['img2img', 'img2img', { ...precise, source_image: source }],
+  ]) {
+    const response = await invoke(tool, args);
+    assert.equal(response.isError, undefined, response.content[0]?.text);
+    assert.doesNotMatch(response.content[0].text, /自动临时改用/);
+    const { path, body } = incoming.at(-1);
+    assert.equal(path, '/ai/generate-image');
+    assert.equal(body.model, DEFAULT_MODEL);
+    assert.equal(body.action, action);
+    assert.deepEqual(body.parameters.director_reference_descriptions.map(ref => ref.caption.base_caption),
+      ['costume', 'character_mainoutfit']);
+    assert.deepEqual(body.parameters.director_reference_strength_values, [5, 1]);
+    for (const image of body.parameters.director_reference_images) {
+      const { width, height, format } = await sharp(Buffer.from(image, 'base64')).metadata();
+      assert.deepEqual([width, height, format], [704, 1408, 'png']);
+    }
+  }
+
+  const infill = {
+    base_prompt: precise.base_prompt,
+    source_image: source,
+    mask_regions: [{ x: 0, y: 0, width: 0.5, height: 0.5 }],
+    character_references: [{ image: source, type: 'character', fidelity: 0.25 }],
+  };
+  const inpainted = await invoke('inpaint_image', infill);
+  assert.equal(inpainted.isError, undefined, inpainted.content[0]?.text);
+  assert.ok(inpainted.content[0].text.includes('因 V5 局部重绘暂不支持 character_references 且未指定 model，本次已自动临时改用 nai-diffusion-4-5-full；后续文生图、图生图（含精确参考）及普通局部重绘请继续省略 model 以默认走 nai-diffusion-5-curated。'));
+  const inpaintBody = incoming.at(-1).body;
+  assert.equal(inpaintBody.model, `${v45}-inpainting`);
+  assert.equal(inpaintBody.action, 'infill');
+  assert.deepEqual(inpaintBody.parameters.director_reference_secondary_strength_values, [0.75]);
+  const ref = Buffer.from(inpaintBody.parameters.director_reference_images[0], 'base64');
+  const { width, height, format } = await sharp(ref).metadata();
+  assert.deepEqual([width, height, format], [1024, 1536, 'png']);
+
+  const explicitFail = await invoke('inpaint_image', { ...infill, model: DEFAULT_MODEL });
+  assert.equal(explicitFail.isError, true);
+  assert.match(explicitFail.content[0].text, /V5 局部重绘暂不支持精确参考/);
+  const tooMany = await invoke('generate_image', {
+    ...precise, character_references: Array(17).fill(precise.character_references[0]),
   });
-  assert.equal(preciseRes.isError, undefined, preciseRes.content[0]?.text);
-  assert.equal(incoming[0].model, v45);
-  assert.match(preciseRes.content[0].text, /character_references[\s\S]*后续普通生图或 img2img 请继续省略 model 以默认走 nai-diffusion-5-curated/);
+  assert.equal(tooMany.isError, true);
+  assert.match(tooMany.content[0].text, /character_references/);
+  assert.equal(incoming.length, 3);
 
   const vibeRes = await invoke('generate_image', {
     base_prompt: '1girl, solo',
     vibe_references: [{ image: source }],
   });
   assert.equal(vibeRes.isError, undefined, vibeRes.content[0]?.text);
-  assert.equal(incoming[1].model, v45);
+  assert.deepEqual(incoming.slice(3).map(({ path, body }) => [path, body.model]), [
+    ['/ai/encode-vibe', v45], ['/ai/generate-image', v45],
+  ]);
   assert.match(vibeRes.content[0].text, /vibe_references[\s\S]*后续普通生图或 img2img 请继续省略 model 以默认走 nai-diffusion-5-curated/);
-
-  // 显式指定不支持精确参考的模型时仍保持严格报错
-  const explicitFail = await invoke('generate_image', {
-    base_prompt: '1girl, solo',
-    model: DEFAULT_MODEL,
-    character_references: [{ image: source, type: 'character' }],
-  });
-  assert.equal(explicitFail.isError, true);
-  assert.match(explicitFail.content[0].text, /精确参考仅支持 V4\.5/);
 });

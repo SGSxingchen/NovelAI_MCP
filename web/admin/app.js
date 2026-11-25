@@ -1,4 +1,4 @@
-import { createStudioAndLibrary } from './studio-library.js?v=studio-library-2';
+import { createStudioAndLibrary } from './studio-library.js?v=studio-library-3';
 
 const API_BASE = '/novelai-admin/api';
 const PAGE_SIZE = 30;

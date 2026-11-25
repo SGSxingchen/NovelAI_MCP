@@ -18,6 +18,21 @@ const MAX_PNG_TEXT_BYTES = 1024 * 1024;
 const MAX_PNG_TEXT_CHUNKS = 64;
 const BLACK = { r: 0, g: 0, b: 0, alpha: 1 };
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const V5_REFERENCE_BUCKETS = [
+  [256, 4096], [256, 4032], [256, 3968], [256, 3904], [256, 3840], [256, 3776], [256, 3712], [256, 3648],
+  [256, 3584], [256, 3520], [256, 3456], [256, 3392], [256, 3328], [320, 3264], [320, 3200], [320, 3136],
+  [320, 3072], [320, 3008], [320, 2944], [320, 2880], [320, 2816], [320, 2752], [384, 2688], [384, 2624],
+  [384, 2560], [384, 2496], [384, 2432], [384, 2368], [448, 2304], [448, 2240], [448, 2176], [448, 2112],
+  [512, 2048], [512, 1984], [512, 1920], [512, 1856], [576, 1792], [576, 1728], [576, 1664], [640, 1600],
+  [640, 1536], [704, 1472], [704, 1408], [768, 1344], [768, 1280], [832, 1216], [896, 1152], [960, 1088],
+  [1024, 1024], [1088, 960], [1152, 896], [1216, 832], [1280, 768], [1344, 768], [1408, 704], [1472, 704],
+  [1536, 640], [1600, 640], [1664, 576], [1728, 576], [1792, 576], [1856, 512], [1920, 512], [1984, 512],
+  [2048, 512], [2112, 448], [2176, 448], [2240, 448], [2304, 448], [2368, 384], [2432, 384], [2496, 384],
+  [2560, 384], [2624, 384], [2688, 384], [2752, 320], [2816, 320], [2880, 320], [2944, 320], [3008, 320],
+  [3072, 320], [3136, 320], [3200, 320], [3264, 320], [3328, 256], [3392, 256], [3456, 256], [3520, 256],
+  [3584, 256], [3648, 256], [3712, 256], [3776, 256], [3840, 256], [3904, 256], [3968, 256], [4032, 256],
+  [4096, 256],
+] as const;
 
 // IANA 特殊用途、组播及保留网段。IPv6 同时要求属于公网单播，拒绝映射与转换前缀。
 const blockedIps = new BlockList();
@@ -191,7 +206,53 @@ function blackLetterbox(buffer: Buffer, width: number, height: number): Promise<
     .flatten({ background: BLACK }).png().toBuffer();
 }
 
-export async function preparePreciseReferenceImage(buffer: Buffer): Promise<Buffer> {
+const MAX_RESIZE_AXIS = 16_384;
+
+export async function bucketPreciseReferenceImage(buffer: Buffer): Promise<Buffer> {
+  const verified = verifyInputImage(buffer);
+  const meta = await pipeline(verified).metadata();
+  if (!meta.width || !meta.height || !meta.format) throw new Error('无法读取图像的宽高和格式');
+  validateSize(meta.width, meta.height);
+  const swapped = typeof meta.orientation === 'number' && meta.orientation >= 5 && meta.orientation <= 8;
+  const width = swapped ? meta.height : meta.width;
+  const height = swapped ? meta.width : meta.height;
+
+  const logRatio = Math.log(Math.max(width, 1) / Math.max(height, 1));
+  const [bucketW, bucketH] = V5_REFERENCE_BUCKETS.reduce((best, candidate) => {
+    const distance = Math.abs(logRatio - Math.log(candidate[0] / candidate[1]));
+    const bestDistance = Math.abs(logRatio - Math.log(best[0] / best[1]));
+    return distance < bestDistance ? candidate : best;
+  });
+  if (width === bucketW && height === bucketH) {
+    if (!swapped && !meta.orientation && !meta.exif && sniffImageFormat(verified)?.ext === 'png') {
+      await pipeline(verified).resize(1, 1, { fit: 'inside' }).raw().toBuffer();
+      return verified;
+    }
+    return pipeline(verified).rotate().png().toBuffer();
+  }
+
+  const scale = Math.max(bucketW / width, bucketH / height);
+  const resizeWidth = Math.max(Math.floor(width * scale + 0.5), bucketW);
+  const resizeHeight = Math.max(Math.floor(height * scale + 0.5), bucketH);
+  if (resizeWidth > MAX_RESIZE_AXIS || resizeHeight > MAX_RESIZE_AXIS) {
+    const cropW = Math.max(1, Math.min(width, Math.round(width * (bucketW / resizeWidth))));
+    const cropH = Math.max(1, Math.min(height, Math.round(height * (bucketH / resizeHeight))));
+    const srcLeft = Math.floor((width - cropW) / 2);
+    const srcTop = Math.floor((height - cropH) / 2);
+    return pipeline(verified).rotate()
+      .extract({ left: srcLeft, top: srcTop, width: cropW, height: cropH })
+      .resize(bucketW, bucketH, { fit: 'fill' }).png().toBuffer();
+  }
+  const left = Math.floor((resizeWidth - bucketW) / 2);
+  const top = Math.floor((resizeHeight - bucketH) / 2);
+  return pipeline(verified).rotate().resize(resizeWidth, resizeHeight, { fit: 'fill' })
+    .extract({ left, top, width: bucketW, height: bucketH }).png().toBuffer();
+}
+
+export async function preparePreciseReferenceImage(
+  buffer: Buffer, mode: 'letterbox' | 'bucket' = 'letterbox',
+): Promise<Buffer> {
+  if (mode === 'bucket') return bucketPreciseReferenceImage(buffer);
   const { width, height } = await getImageDimensions(buffer);
   const ratio = width / height;
   const candidates = [{ w: 1024, h: 1536 }, { w: 1536, h: 1024 }, { w: 1472, h: 1472 }];

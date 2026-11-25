@@ -351,6 +351,19 @@ test('Web 试画复用模型参数、参考和 Anlas 回执，解析大图并自
   assert.deepEqual(tags, { tags: [{ tag: 'cloud' }] });
   assert.deepEqual(calls.at(-1), ['tags', { prompt: 'clo', model, lang: 'jp' }]);
   await json(admin('/studio/suggest-tags', 'POST', { prompt: 'clo', limit: 0 }), 400);
+
+  // V5 精确参考 Studio 路由提交与 V4.5 强度越界前置 400 校验
+  const v5Precise = await run('generate_image', {
+    base_prompt: 'coat test',
+    character_references: [{ image: source_image, type: 'costume', strength: 2.5 }],
+  });
+  assert.equal(v5Precise.ok, true);
+  assert.equal(calls.at(-1)[1].characterReferences[0].type, 'costume');
+  assert.equal(calls.at(-1)[1].characterReferences[0].strength, 2.5);
+  await json(admin('/studio/run', 'POST', {
+    tool: 'generate_image',
+    params: { base_prompt: 'overflow', model, character_references: [{ image: source_image, type: 'character', strength: 1.5 }] },
+  }), 400);
 });
 
 test('无归档配置的试画请求在调用上游前返回 503', { timeout: 10_000 }, async t => {

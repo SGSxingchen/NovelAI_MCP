@@ -34,7 +34,7 @@ export const NOISE_SCHEDULES = ['native', 'karras', 'exponential', 'polyexponent
 export const IMAGE_FORMATS = ['png', 'webp'] as const;
 export const QUALITY_PRESETS = ['standard', 'light', 'none'] as const;
 export const UC_PRESET_NAMES = ['heavy', 'light', 'furry', 'human', 'none'] as const;
-export const PRECISE_REFERENCE_TYPES = ['character', 'style', 'character&style', 'costume', 'delta'] as const;
+export const PRECISE_REFERENCE_TYPES = ['character', 'style', 'costume', 'character&style', 'character_mainoutfit', 'character&style_anyoutfit', 'delta'] as const;
 export const AUGMENT_REQ_TYPES = [
   'lineart', 'sketch', 'colorize', 'declutter', 'declutter-keep-bubbles', 'emotion', 'bg-removal', 'pixel-snap',
 ] as const;
@@ -53,6 +53,7 @@ export type ImageMimeType = 'image/png' | 'image/webp' | 'image/jpeg';
 export type QualityPreset = (typeof QUALITY_PRESETS)[number];
 export type UcPresetName = (typeof UC_PRESET_NAMES)[number];
 export type PreciseReferenceType = (typeof PRECISE_REFERENCE_TYPES)[number];
+export type PreciseReferenceTypeInput = PreciseReferenceType | 'outfit';
 export type AugmentReqType = (typeof AUGMENT_REQ_TYPES)[number];
 export type EmotionMood = (typeof EMOTION_MOODS)[number];
 export type StreamType = 'msgpack';
@@ -100,7 +101,8 @@ export interface MaskRegion {
 
 export interface CharacterReferenceInput {
   image: string;
-  type: PreciseReferenceType;
+  type: PreciseReferenceTypeInput;
+  prefer_same_outfit?: boolean;
   strength?: number;
   fidelity?: number;
 }

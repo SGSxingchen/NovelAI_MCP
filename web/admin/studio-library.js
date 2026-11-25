@@ -43,12 +43,29 @@ const FORMAT_LABELS = {
 };
 
 const PRECISE_REF_LABELS = {
-  character: '角色特征',
-  style: '画风迁移',
-  'character&style': '角色与画风',
-  costume: '服装造型',
+  character: '角色参考',
+  style: '画风参考',
+  costume: '服装参考（V5）',
+  'character&style': '角色 + 画风',
   delta: '细节增量',
 };
+
+function normalizePreciseRefState(ref) {
+  const raw = ref?.type === 'outfit' ? 'costume' : (ref?.type || 'character');
+  if (raw === 'character_mainoutfit') {
+    return { baseType: 'character', preferSameOutfit: ref?.prefer_same_outfit ?? true };
+  }
+  if (raw === 'character&style_anyoutfit') {
+    return { baseType: 'character&style', preferSameOutfit: ref?.prefer_same_outfit ?? false };
+  }
+  if (raw === 'character&style') {
+    return { baseType: 'character&style', preferSameOutfit: ref?.prefer_same_outfit ?? true };
+  }
+  if (raw === 'style' || raw === 'costume' || raw === 'delta') {
+    return { baseType: raw, preferSameOutfit: Boolean(ref?.prefer_same_outfit) };
+  }
+  return { baseType: 'character', preferSameOutfit: ref?.prefer_same_outfit ?? false };
+}
 
 const AUGMENT_INFO = {
   'bg-removal': { label: '一键去背景', desc: '自动分离主体透明图（扣点）' },
@@ -242,7 +259,8 @@ export function createStudioAndLibrary(ctx) {
     refMode: 'none',
     characters: [],
     maskRegions: [{ shape: 'rect', x: 0.25, y: 0.25, width: 0.5, height: 0.5 }],
-    references: [],
+    preciseReferences: [],
+    vibeReferences: [],
     running: false,
     runHistory: [],
     activeResult: null,
@@ -285,7 +303,11 @@ export function createStudioAndLibrary(ctx) {
       maxCharacters: 32,
       supportsVibe: false,
       supportsVibeInInpaint: false,
-      supportsPreciseRef: false,
+      supportsPreciseRef: true,
+      supportsPreciseRefInInpaint: false,
+      supportsPreciseRefFidelity: false,
+      preciseRefStrengthMax: 5,
+      supportsOutfitRef: true,
       supportsTransparent: true,
       supportsSmea: false,
       supportsDecrisp: false,
@@ -339,24 +361,41 @@ export function createStudioAndLibrary(ctx) {
 
     // Vibe / 精确参考
     const canVibe = cap.supportsVibe && (!isInpaint || cap.supportsVibeInInpaint);
-    const canPrecise = cap.supportsPreciseRef;
+    const canPrecise = Boolean(cap.supportsPreciseRef && (!isInpaint || cap.supportsPreciseRefInInpaint !== false));
     $('studioRefCard').hidden = !genLike || (!canVibe && !canPrecise);
     const vibeBtn = document.querySelector('[data-ref-mode="vibe"]');
     const preciseBtn = document.querySelector('[data-ref-mode="precise"]');
     if (vibeBtn) vibeBtn.disabled = !canVibe;
     if (preciseBtn) preciseBtn.disabled = !canPrecise;
+    const refHint = $('studioRefHint');
+    if (refHint) {
+      if (canPrecise && cap.supportsOutfitRef) {
+        refHint.textContent = '支持角色、画风与服装精确参考（强度 0~5，可多张自由混搭；每张参考图约 +5 Anlas）';
+      } else if (canPrecise && canVibe) {
+        refHint.textContent = 'Vibe 氛围参考与精确参考互斥；V4.5 精确参考支持强度 0~1 与保真度微调';
+      } else if (canPrecise) {
+        refHint.textContent = '当前局部重绘支持 V4.5 精确参考（角色/画风，强度 0~1 与保真度微调）';
+      } else if (canVibe) {
+        refHint.textContent = '当前模型支持最多 16 张 Vibe 风格氛围参考';
+      }
+    }
     if ((local.refMode === 'vibe' && !canVibe) || (local.refMode === 'precise' && !canPrecise)) {
       setRefMode('none');
+    } else if (local.refMode !== 'none') {
+      renderReferences();
     }
 
     // 模型说明
     const notices = [];
     if (cap.isMediumLocked) notices.push('V5 Medium 极速模型已锁定 14 步 / CFG Rescale 0 / 强力 UC 预设');
-    else if (model.startsWith('nai-diffusion-5')) notices.push('V5 优先消耗独立 V5 额度条，支持自然语言构图与透明背景');
+    else if (model.startsWith('nai-diffusion-5')) notices.push('V5 优先消耗独立 V5 额度条，支持精确参考（角色/画风/服装）、自然语言构图与透明背景');
     else if (model.startsWith('nai-diffusion-4-5')) notices.push('V4.5 支持多角色、Vibe 氛围参考与精确角色/画风参考');
     else if (cap.isV3) notices.push('V3 经典模型：支持 SMEA / 动态阈值，不支持独立角色框');
     if (isInpaint && model === 'nai-diffusion-5-curated') {
       notices.push('局部重绘会自动使用同代 V5 Full Inpainting');
+    }
+    if (isInpaint && model.startsWith('nai-diffusion-5')) {
+      notices.push('V5 局部重绘暂不支持精确参考');
     }
     $('studioModelNotice').textContent = notices.join(' · ') || '支持完整参数微调与自动归档';
 
@@ -396,8 +435,8 @@ export function createStudioAndLibrary(ctx) {
       return;
     }
 
-    const hasPrecise = local.refMode === 'precise' && local.references.length > 0;
-    const hasVibe = local.refMode === 'vibe' && local.references.length > 0;
+    const hasPrecise = local.refMode === 'precise' && local.preciseReferences.length > 0;
+    const hasVibe = local.refMode === 'vibe' && local.vibeReferences.length > 0;
     const pixels = w * h;
     if (hasPrecise) {
       badge.className = 'pill pill-warning';
@@ -466,16 +505,21 @@ export function createStudioAndLibrary(ctx) {
     }
   }
 
+  function activeReferenceList(mode = local.refMode) {
+    return mode === 'precise' ? local.preciseReferences : mode === 'vibe' ? local.vibeReferences : [];
+  }
+
   function setRefMode(mode) {
     local.refMode = mode;
     document.querySelectorAll('[data-ref-mode]').forEach((btn) => {
       btn.classList.toggle('is-active', btn.dataset.refMode === mode);
     });
     $('studioRefBody').hidden = mode === 'none';
-    if (mode !== 'none' && local.references.length === 0) {
-      local.references.push(
+    const items = activeReferenceList(mode);
+    if (mode !== 'none' && items.length === 0) {
+      items.push(
         mode === 'precise'
-          ? { image: '', type: 'character', strength: 1, fidelity: 1 }
+          ? { image: '', type: 'character', prefer_same_outfit: false, strength: 1, fidelity: 1 }
           : { image: '', strength: 0.6, information_extracted: 1 },
       );
     }
@@ -488,7 +532,17 @@ export function createStudioAndLibrary(ctx) {
     list.replaceChildren();
     if (local.refMode === 'none') return;
 
-    local.references.forEach((ref, idx) => {
+    const cap = getCurrentCapability();
+    const isPrecise = local.refMode === 'precise';
+    const items = activeReferenceList();
+    const supportsOutfit = Boolean(cap.supportsOutfitRef);
+    const showFidelity = Boolean(cap.supportsPreciseRefFidelity);
+    const maxStrength = isPrecise ? (Number(cap.preciseRefStrengthMax) || 1) : 1;
+    const allowedPreciseTypes = supportsOutfit
+      ? ['character', 'style', 'costume', 'character&style', 'delta']
+      : ['character', 'style', 'character&style', 'delta'];
+
+    items.forEach((ref, idx) => {
       const card = document.createElement('div');
       card.className = 'sub-item-card';
 
@@ -496,13 +550,13 @@ export function createStudioAndLibrary(ctx) {
       head.className = 'sub-item-head';
       const title = document.createElement('span');
       title.className = 'sub-item-title';
-      title.textContent = local.refMode === 'precise' ? `精确参考 #${idx + 1}` : `Vibe 氛围参考 #${idx + 1}`;
+      title.textContent = isPrecise ? `精确参考 #${idx + 1}` : `Vibe 氛围参考 #${idx + 1}`;
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'btn-inline';
       del.textContent = '移除';
       del.addEventListener('click', () => {
-        local.references.splice(idx, 1);
+        items.splice(idx, 1);
         renderReferences();
         updateOpusAndSummary();
       });
@@ -510,16 +564,47 @@ export function createStudioAndLibrary(ctx) {
       card.appendChild(head);
 
       const imgRow = document.createElement('div');
-      imgRow.className = 'input-with-btn';
+      imgRow.className = 'input-with-btn ref-input-row';
       const imgInput = document.createElement('input');
       imgInput.type = 'text';
       imgInput.className = 'input mono-input';
-      imgInput.placeholder = local.refMode === 'vibe' ? '归档 ID（或直接粘贴已缓存 vibe_id）' : '归档 ID 或图片链接';
+      imgInput.placeholder = isPrecise ? '归档 ID 或图片链接（支持直接上传）' : '归档 ID（或直接粘贴已缓存 vibe_id）';
       imgInput.value = ref.image || ref.vibe_id || '';
       imgInput.addEventListener('input', () => {
         ref.image = imgInput.value.trim();
         delete ref.vibe_id;
       });
+
+      const uploadLabel = document.createElement('label');
+      uploadLabel.className = 'btn btn-secondary btn-sm file-btn';
+      uploadLabel.textContent = '上传图';
+      const uploadInput = document.createElement('input');
+      uploadInput.type = 'file';
+      uploadInput.accept = 'image/*';
+      uploadInput.hidden = true;
+      uploadInput.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        try {
+          const { image_id } = await ctx.apiFetch('/images/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: file,
+            signal: AbortSignal.timeout(90_000),
+          });
+          ref.image = image_id;
+          delete ref.vibe_id;
+          renderReferences();
+          updateOpusAndSummary();
+          ctx.showToast('参考图已加密上传并自动填入');
+          ctx.refreshGalleryAndOverview();
+        } catch (err) {
+          ctx.showToast(err.message, true);
+        }
+      });
+      uploadLabel.appendChild(uploadInput);
+
       const pickBtn = document.createElement('button');
       pickBtn.type = 'button';
       pickBtn.className = 'btn btn-secondary btn-sm';
@@ -528,47 +613,65 @@ export function createStudioAndLibrary(ctx) {
         openGalleryPicker('选择参考图', (imgItem) => {
           ref.image = imgItem.id;
           delete ref.vibe_id;
-          imgInput.value = imgItem.id;
+          renderReferences();
+          updateOpusAndSummary();
         });
       });
-      imgRow.append(imgInput, pickBtn);
+      imgRow.append(imgInput, uploadLabel, pickBtn);
       card.appendChild(imgRow);
 
       const paramsRow = document.createElement('div');
-      paramsRow.className = local.refMode === 'precise' ? 'param-grid-3' : 'param-grid-2';
+      paramsRow.className = isPrecise && showFidelity ? 'param-grid-3' : 'param-grid-2';
 
-      if (local.refMode === 'precise') {
+      const norm = normalizePreciseRefState(ref);
+      const effectiveBaseType = isPrecise
+        ? (!supportsOutfit && norm.baseType === 'costume' ? 'character' : norm.baseType)
+        : 'character';
+
+      if (isPrecise) {
         const typeField = document.createElement('label');
         typeField.className = 'field';
         typeField.innerHTML = '<span class="field-label">参考类型</span>';
         const sel = document.createElement('select');
         sel.className = 'select select-sm';
-        for (const t of local.meta?.preciseReferenceTypes || Object.keys(PRECISE_REF_LABELS)) {
+        for (const t of allowedPreciseTypes) {
           const opt = document.createElement('option');
           opt.value = t;
           opt.textContent = PRECISE_REF_LABELS[t] || t;
           sel.appendChild(opt);
         }
-        sel.value = ref.type || 'character';
-        sel.addEventListener('change', () => { ref.type = sel.value; });
+        sel.value = effectiveBaseType;
+        sel.addEventListener('change', () => {
+          const prevType = normalizePreciseRefState(ref).baseType;
+          ref.type = sel.value;
+          if (sel.value === 'character&style' && prevType !== 'character&style') {
+            ref.prefer_same_outfit = true;
+          } else if (sel.value === 'character' && prevType !== 'character') {
+            ref.prefer_same_outfit = false;
+          }
+          renderReferences();
+        });
         typeField.appendChild(sel);
         paramsRow.appendChild(typeField);
       }
 
+      const rawStrength = Number(ref.strength ?? (isPrecise ? 1 : 0.6));
+      const effectiveStrength = Math.max(0, Math.min(maxStrength, Number.isFinite(rawStrength) ? rawStrength : 1));
+
       const strField = document.createElement('label');
       strField.className = 'field';
       const strVal = document.createElement('strong');
-      strVal.textContent = Number(ref.strength ?? 0.6).toFixed(2);
+      strVal.textContent = effectiveStrength.toFixed(2);
       const strLbl = document.createElement('span');
       strLbl.className = 'field-label';
-      strLbl.append('参考强度 ', strVal);
+      strLbl.append(isPrecise && maxStrength > 1 ? '参考强度 (0~5) ' : '参考强度 ', strVal);
       const strRange = document.createElement('input');
       strRange.type = 'range';
       strRange.className = 'range-input';
-      strRange.min = '0.05';
-      strRange.max = '1';
+      strRange.min = isPrecise ? '0' : '0.05';
+      strRange.max = String(maxStrength);
       strRange.step = '0.05';
-      strRange.value = String(ref.strength ?? (local.refMode === 'precise' ? 1 : 0.6));
+      strRange.value = String(effectiveStrength);
       strRange.addEventListener('input', () => {
         ref.strength = Number(strRange.value);
         strVal.textContent = ref.strength.toFixed(2);
@@ -576,30 +679,47 @@ export function createStudioAndLibrary(ctx) {
       strField.append(strLbl, strRange);
       paramsRow.appendChild(strField);
 
-      const secondField = document.createElement('label');
-      secondField.className = 'field';
-      const isPrecise = local.refMode === 'precise';
-      const secondKey = isPrecise ? 'fidelity' : 'information_extracted';
-      const secondVal = document.createElement('strong');
-      secondVal.textContent = Number(ref[secondKey] ?? 1).toFixed(2);
-      const secondLbl = document.createElement('span');
-      secondLbl.className = 'field-label';
-      secondLbl.append(isPrecise ? '保真度 ' : '信息提取度 ', secondVal);
-      const secondRange = document.createElement('input');
-      secondRange.type = 'range';
-      secondRange.className = 'range-input';
-      secondRange.min = '0.05';
-      secondRange.max = '1';
-      secondRange.step = '0.05';
-      secondRange.value = String(ref[secondKey] ?? 1);
-      secondRange.addEventListener('input', () => {
-        ref[secondKey] = Number(secondRange.value);
-        secondVal.textContent = ref[secondKey].toFixed(2);
-      });
-      secondField.append(secondLbl, secondRange);
-      paramsRow.appendChild(secondField);
+      if (!isPrecise || showFidelity) {
+        const secondField = document.createElement('label');
+        secondField.className = 'field';
+        const secondKey = isPrecise ? 'fidelity' : 'information_extracted';
+        const secondVal = document.createElement('strong');
+        secondVal.textContent = Number(ref[secondKey] ?? 1).toFixed(2);
+        const secondLbl = document.createElement('span');
+        secondLbl.className = 'field-label';
+        secondLbl.append(isPrecise ? '保真度 ' : '信息提取度 ', secondVal);
+        const secondRange = document.createElement('input');
+        secondRange.type = 'range';
+        secondRange.className = 'range-input';
+        secondRange.min = isPrecise ? '0' : '0.05';
+        secondRange.max = '1';
+        secondRange.step = '0.05';
+        secondRange.value = String(ref[secondKey] ?? 1);
+        secondRange.addEventListener('input', () => {
+          ref[secondKey] = Number(secondRange.value);
+          secondVal.textContent = ref[secondKey].toFixed(2);
+        });
+        secondField.append(secondLbl, secondRange);
+        paramsRow.appendChild(secondField);
+      }
 
       card.appendChild(paramsRow);
+
+      if (isPrecise && supportsOutfit && (effectiveBaseType === 'character' || effectiveBaseType === 'character&style')) {
+        const outfitRow = document.createElement('label');
+        outfitRow.className = 'check-field check-field-compact';
+        const outfitCb = document.createElement('input');
+        outfitCb.type = 'checkbox';
+        outfitCb.checked = norm.preferSameOutfit;
+        outfitCb.addEventListener('change', () => {
+          ref.prefer_same_outfit = outfitCb.checked;
+        });
+        const outfitText = document.createElement('span');
+        outfitText.textContent = '保留同款服装（更严格还原参考图角色的衣着造型）';
+        outfitRow.append(outfitCb, outfitText);
+        card.appendChild(outfitRow);
+      }
+
       list.appendChild(card);
     });
   }
@@ -904,7 +1024,7 @@ export function createStudioAndLibrary(ctx) {
     }
 
     if (!$('studioRefCard').hidden && local.refMode === 'vibe') {
-      const vibes = local.references
+      const vibes = local.vibeReferences
         .filter((r) => (r.image && r.image.trim()) || r.vibe_id)
         .map((r) => ({
           ...(r.vibe_id ? { vibe_id: r.vibe_id } : { image: r.image.trim() }),
@@ -913,14 +1033,27 @@ export function createStudioAndLibrary(ctx) {
         }));
       if (vibes.length > 0) params.vibe_references = vibes;
     } else if (!$('studioRefCard').hidden && local.refMode === 'precise') {
-      const refs = local.references
+      const supportsOutfit = Boolean(cap.supportsOutfitRef);
+      const showFidelity = Boolean(cap.supportsPreciseRefFidelity);
+      const maxStrength = Number(cap.preciseRefStrengthMax) || 1;
+      const refs = local.preciseReferences
         .filter((r) => r.image && r.image.trim())
-        .map((r) => ({
-          image: r.image.trim(),
-          type: r.type || 'character',
-          strength: Number(r.strength ?? 1),
-          fidelity: Number(r.fidelity ?? 1),
-        }));
+        .map((r) => {
+          const norm = normalizePreciseRefState(r);
+          const type = !supportsOutfit && norm.baseType === 'costume' ? 'character' : norm.baseType;
+          const item = {
+            image: r.image.trim(),
+            type,
+            strength: Math.max(0, Math.min(maxStrength, Number(r.strength ?? 1))),
+          };
+          if (showFidelity) {
+            item.fidelity = Math.max(0, Math.min(1, Number(r.fidelity ?? 1)));
+          }
+          if (supportsOutfit && (type === 'character' || type === 'character&style')) {
+            item.prefer_same_outfit = norm.preferSameOutfit;
+          }
+          return item;
+        });
       if (refs.length > 0) params.character_references = refs;
     }
 
@@ -2017,7 +2150,8 @@ export function createStudioAndLibrary(ctx) {
       $('studioForm').reset();
       $('studioError').hidden = true;
       local.characters = [];
-      local.references = [];
+      local.preciseReferences = [];
+      local.vibeReferences = [];
       local.maskRegions = [{ shape: 'rect', x: 0.25, y: 0.25, width: 0.5, height: 0.5 }];
       setRefMode('none');
       renderCharacters();
@@ -2116,9 +2250,14 @@ export function createStudioAndLibrary(ctx) {
       btn.addEventListener('click', () => setRefMode(btn.dataset.refMode));
     });
     $('studioAddRefBtn').addEventListener('click', () => {
-      local.references.push(
+      const items = activeReferenceList();
+      if (items.length >= 16) {
+        ctx.showToast('最多支持同时添加 16 张参考图', true);
+        return;
+      }
+      items.push(
         local.refMode === 'precise'
-          ? { image: '', type: 'character', strength: 1, fidelity: 1 }
+          ? { image: '', type: 'character', prefer_same_outfit: false, strength: 1, fidelity: 1 }
           : { image: '', strength: 0.6, information_extracted: 1 },
       );
       renderReferences();

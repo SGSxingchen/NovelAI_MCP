@@ -16,6 +16,7 @@ import {
   saveImage,
 } from '../dist/image-archive.js';
 import {
+  bucketPreciseReferenceImage,
   extractPngTextMetadata,
   fitImageToMaxPixels,
   generateMaskFromRegions,
@@ -199,6 +200,64 @@ test('Sharp 图像预处理输出正确像素，参考图居中并以不透明�
   const vibe = await prepareV3VibeImage(transparent);
   assert.deepEqual(await getImageDimensions(vibe), { width: 448, height: 448, format: 'png' });
   assert.deepEqual(await sharp(vibe).stats().then(stats => stats.channels.map(channel => channel.max)), [0, 0, 0]);
+});
+
+test('V5 精确参考按对数宽高比选档，覆盖方图、横竖图和比例两端', async () => {
+  for (const [width, height, bucketWidth, bucketHeight] of [
+    [48, 48, 1024, 1024],
+    [40, 80, 704, 1408],
+    [80, 40, 1408, 704],
+    [2, 49, 256, 4096],
+    [49, 2, 4096, 256],
+    [1, 8000, 256, 4096],
+    [87, 1000, 320, 3264], // 线性宽高比会选 256×3328。
+  ]) {
+    const input = await image(width, height).webp({ lossless: true }).toBuffer();
+    const output = await bucketPreciseReferenceImage(input);
+    assert.deepEqual(await getImageDimensions(output), { width: bucketWidth, height: bucketHeight, format: 'png' });
+  }
+  // EXIF Orientation=6 的横存竖显 JPEG 应按旋转后竖图选档并剥离 EXIF
+  const exifRotated = await image(80, 40).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+  const rotatedOut = await bucketPreciseReferenceImage(exifRotated);
+  assert.deepEqual(await getImageDimensions(rotatedOut), { width: 704, height: 1408, format: 'png' });
+  assert.equal((await sharp(rotatedOut).metadata()).orientation, undefined);
+});
+
+test('V5 精确参考等比放大后居中裁剪，奇数余量向下取整并保留透明像素', async () => {
+  for (const [width, height, resizeWidth, resizeHeight, left, top] of [
+    [78, 75, 1065, 1024, 20, 0],
+    [75, 78, 1024, 1065, 0, 20],
+  ]) {
+    const pixels = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const alpha = x < width / 3 ? 0 : x < 2 * width / 3 ? 128 : 255;
+        pixels.set([x * 3, y * 3, 120, alpha], (y * width + x) * 4);
+      }
+    }
+    const input = await sharp(pixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+    const output = await preparePreciseReferenceImage(input, 'bucket');
+    assert.deepEqual(await getImageDimensions(output), { width: 1024, height: 1024, format: 'png' });
+    const expected = await sharp(input).resize(resizeWidth, resizeHeight, { fit: 'fill' })
+      .extract({ left, top, width: 1024, height: 1024 }).raw().toBuffer();
+    const { data, info } = await sharp(output).raw().toBuffer({ resolveWithObject: true });
+    assert.equal(info.channels, 4);
+    assert.ok(data.equals(expected), `${width}×${height} 的裁剪位置应为 (${left}, ${top})`);
+    assert.deepEqual([data[3], data[512 * 4 + 3], data[1023 * 4 + 3]], [0, 128, 255]);
+  }
+});
+
+test('V5 精确参考尺寸命中分档时直传 PNG，其他格式只转 PNG', async () => {
+  const png = await sharp({
+    create: { width: 1024, height: 1024, channels: 4, background: { r: 45, g: 70, b: 90, alpha: 0.5 } },
+  }).png().toBuffer();
+  assert.strictEqual(await bucketPreciseReferenceImage(png), png);
+
+  const webp = await sharp(png).webp({ lossless: true }).toBuffer();
+  const output = await bucketPreciseReferenceImage(webp);
+  assert.deepEqual(await getImageDimensions(output), { width: 1024, height: 1024, format: 'png' });
+  const pixel = await sharp(output).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
+  assert.deepEqual([...pixel], [45, 70, 90, 128]);
 });
 
 async function assertMaskGrid(mask, width, height) {

@@ -117,15 +117,17 @@ npm run start:sse
 
 | 模型 ID | 说明 | 特性摘要 |
 |---------|------|----------|
-| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（**默认**） | 最多 32 角色、透明背景；局部重绘自动使用同代 `nai-diffusion-5-full-inpainting`（保留 32 角色与透明背景） |
-| `nai-diffusion-5-full` | NovelAI Diffusion V5 Full | 最多 32 角色、透明背景、独立 inpainting |
-| `nai-diffusion-5-full-medium` | NovelAI Diffusion V5 Full Medium | 硬锁定 14 步 / `k_euler_ancestral` / `cfg_rescale=0` / `uc_preset=heavy` |
+| `nai-diffusion-5-curated` | NovelAI Diffusion V5 Curated（**默认**） | 最多 32 角色、透明背景、精确参考（角色、画风、服装，强度 0–5）。普通局部重绘使用同代 `nai-diffusion-5-full-inpainting`（保留 32 角色与透明背景） |
+| `nai-diffusion-5-full` | NovelAI Diffusion V5 Full | 最多 32 角色、透明背景、精确参考（角色、画风、服装，强度 0–5）、独立局部重绘模型 |
+| `nai-diffusion-5-full-medium` | NovelAI Diffusion V5 Full Medium | 硬锁定 14 步 / `k_euler_ancestral` / `cfg_rescale=0` / `uc_preset=heavy`（不支持精确参考） |
 | `nai-diffusion-4-5-full` | NovelAI Diffusion V4.5 Full | 最多 6 角色、精确参考（Precise Reference）、Vibe Transfer、Variety+ |
 | `nai-diffusion-4-5-curated` | NovelAI Diffusion V4.5 Curated | 同 V4.5 Full 能力矩阵 |
 | `nai-diffusion-4-full` | NovelAI Diffusion V4 Full | 最多 6 角色、Vibe Transfer（含局部重绘）、Variety+ |
 | `nai-diffusion-4-curated-preview` | NovelAI Diffusion V4 Curated Preview | 同 V4 Full 能力矩阵 |
 | `nai-diffusion-3` | NovelAI Diffusion V3 Anime | SMEA / SMEA DYN / Auto SMEA / Decrisp / `native` 调度、448×448 原图 Vibe |
 | `nai-diffusion-furry-3` | NovelAI Diffusion V3 Furry | 同 V3 Anime 能力矩阵 |
+
+文生图和图生图传入 `character_references` 时，省略 `model` 即可使用默认 V5 Curated。每次最多 16 张精确参考图，与 Vibe Transfer 互斥。带精确参考的局部重绘需要 V4.5，省略 `model` 时本次自动使用 `nai-diffusion-4-5-full` 并在回执中说明。
 
 ## 🧰 MCP 工具列表（9 个）
 

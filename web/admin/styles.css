@@ -1113,6 +1113,21 @@ dialog.modal[open]:where(:not([data-closing])) {
   flex: 1;
   min-width: 0;
 }
+.ref-input-row {
+  flex-wrap: wrap;
+}
+.ref-input-row .input {
+  flex: 1 1 200px;
+}
+.ref-input-row .btn {
+  flex-shrink: 0;
+  cursor: pointer;
+}
+@media (max-width: 520px) {
+  .ref-input-row .input {
+    flex: 1 1 100%;
+  }
+}
 .field-head-between {
   display: flex;
   align-items: center;

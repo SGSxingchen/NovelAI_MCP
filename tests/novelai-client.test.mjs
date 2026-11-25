@@ -5,8 +5,8 @@ import test from 'node:test';
 import AdmZip from 'adm-zip';
 import sharp from 'sharp';
 import { NovelAIClient } from '../dist/novelai-client.js';
-import { computeVarietySigma, normalizeSeed, alignDimension } from '../dist/model-registry.js';
-import { AUGMENT_REQ_TYPES, EMOTION_MOODS, IMAGE_MODELS } from '../dist/types.js';
+import { computeVarietySigma, normalizeSeed, alignDimension, MAX_PRECISE_REFERENCES, MODEL_REGISTRY } from '../dist/model-registry.js';
+import { AUGMENT_REQ_TYPES, DEFAULT_MODEL, EMOTION_MOODS, IMAGE_MODELS } from '../dist/types.js';
 
 const png = await sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 30, g: 100, b: 120, alpha: 0.7 } } }).png().toBuffer();
 const image = png.toString('base64');
@@ -33,6 +33,17 @@ async function mockNovelAI(t, respond = (_request, res) => res.writeHead(201, { 
     server.closeAllConnections();
   }));
   return { client: new NovelAIClient('test-key', { baseUrl }), baseUrl, requests };
+}
+
+function captureGeneration(t) {
+  const client = new NovelAIClient('test-key', { baseUrl: 'http://127.0.0.1' });
+  const requests = [];
+  t.mock.method(client, 'request', async (path, body) => {
+    assert.equal(path, '/ai/generate-image');
+    requests.push(body);
+    return { buffer: png, contentType: 'image/png' };
+  });
+  return { client, requests };
 }
 
 test('模型顺序、默认步数与引导值及协议版本按模型族变化', async (t) => {
@@ -240,7 +251,7 @@ test('图生图默认去噪、色彩修正及种子，并禁用 V3 SMEA', async 
 });
 
 test('精确参考五组参数等长并反转忠实度，Vibe 与精确参考互斥', async (t) => {
-  const { client, requests } = await mockNovelAI(t);
+  const { client, requests } = captureGeneration(t);
   const input = {
     prompt: 'rose', model: 'nai-diffusion-4-5-full',
     characterReferences: [
@@ -249,7 +260,7 @@ test('精确参考五组参数等长并反转忠实度，Vibe 与精确参考互
     ],
   };
   await client.generateImage(input);
-  const p = requests.at(-1).body.parameters;
+  const p = requests.at(-1).parameters;
   assert.deepEqual(p.director_reference_images, [image, image]);
   assert.deepEqual(p.director_reference_descriptions, ['character&style', 'costume'].map((type) => ({ caption: { base_caption: type, char_captions: [] }, legacy_uc: false })));
   assert.deepEqual(p.director_reference_information_extracted, [1, 1]);
@@ -258,9 +269,111 @@ test('精确参考五组参数等长并反转忠实度，Vibe 与精确参考互
 
   const vibeReferences = [{ encoded_vibe: image }];
   await assert.rejects(client.generateImage({ ...input, vibeReferences }), /同时|互斥/);
-  await assert.rejects(client.generateImage({ ...input, model: 'nai-diffusion-4-full' }), /参考/);
+  await assert.rejects(client.generateImage({ ...input, model: 'nai-diffusion-4-full' }), {
+    message: '精确参考仅支持 V5（Curated / Full）和 V4.5 模型',
+  });
+  await assert.rejects(client.generateImage({ ...input, model: 'nai-diffusion-5-full-medium' }), {
+    message: 'V5 Full Medium 不支持精确参考，请改用 V5 Curated、V5 Full 或 V4.5 模型',
+  });
   await assert.rejects(client.generateImage({ ...input, reference_image_multiple: [image] }), /同时|互斥/);
   assert.equal(requests.length, 1);
+});
+
+test('精确参考能力按模型族区分', () => {
+  for (const model of IMAGE_MODELS) {
+    const isV5Precise = model === 'nai-diffusion-5-curated' || model === 'nai-diffusion-5-full';
+    const isV45 = model.startsWith('nai-diffusion-4-5-');
+    const capability = MODEL_REGISTRY[model];
+    assert.equal(capability.supportsPreciseRef, isV5Precise || isV45, model);
+    assert.equal(capability.supportsPreciseRefInInpaint, isV45, model);
+    assert.equal(capability.preciseRefBucketResize, isV5Precise, model);
+    assert.equal(capability.supportsPreciseRefFidelity, isV45, model);
+    assert.equal(capability.preciseRefStrengthMax, isV5Precise ? 5 : 1, model);
+    assert.equal(capability.supportsOutfitRef, isV5Precise, model);
+  }
+});
+
+test('V5 Curated 精确参考映射服装别名和同款服装开关，接受强度 0 至 5 并忽略忠实度', async t => {
+  const { client, requests } = captureGeneration(t);
+  const characterReferences = [
+    { image, type: 'outfit', strength: 5, fidelity: 0.3 },
+    { image, type: 'character', prefer_same_outfit: true, strength: 0, fidelity: 2 },
+    { image, type: 'character_mainoutfit', prefer_same_outfit: false, strength: 1.5 },
+    { image, type: 'character' },
+    { image, type: 'character&style', prefer_same_outfit: false },
+    { image, type: 'character&style_anyoutfit', prefer_same_outfit: true },
+    { image, type: 'character&style' },
+    { image, type: 'style', prefer_same_outfit: true },
+    { image, type: 'delta' },
+  ];
+  await client.generateImage({ prompt: 'rose', characterReferences });
+  const [body] = requests;
+  const p = body.parameters;
+  assert.equal(body.model, DEFAULT_MODEL);
+  assert.deepEqual(p.director_reference_images, Array(9).fill(image));
+  assert.deepEqual(p.director_reference_descriptions, [
+    'costume', 'character_mainoutfit', 'character_mainoutfit', 'character', 'character&style_anyoutfit',
+    'character&style_anyoutfit', 'character&style', 'style', 'delta',
+  ].map(type => ({ caption: { base_caption: type, char_captions: [] }, legacy_uc: false })));
+  assert.deepEqual(p.director_reference_information_extracted, Array(9).fill(1));
+  assert.deepEqual(p.director_reference_strength_values, [5, 0, 1.5, 1, 1, 1, 1, 1, 1]);
+  assert.deepEqual(p.director_reference_secondary_strength_values, Array(9).fill(0));
+});
+
+test('精确参考按模型限制强度，参考图上限为 16，非法类型在请求前拒绝', async t => {
+  const { client, requests } = captureGeneration(t);
+  const input = { prompt: 'rose' };
+  const reference = { image, type: 'style' };
+  await assert.rejects(client.generateImage({
+    ...input, characterReferences: [{ ...reference, strength: 5.01 }],
+  }), { message: '精确参考强度 必须在 0 到 5 之间' });
+  await assert.rejects(client.generateImage({
+    ...input, model: 'nai-diffusion-4-5-full', characterReferences: [{ ...reference, strength: 1.01 }],
+  }), { message: '精确参考强度 必须在 0 到 1 之间' });
+  await assert.rejects(client.generateImage({
+    ...input, characterReferences: [{ ...reference, type: 'unknown' }],
+  }), { message: '不支持该精确参考类型' });
+  assert.equal(MAX_PRECISE_REFERENCES, 16);
+  const characterReferences = Array(16).fill(reference);
+  await assert.rejects(client.generateImage({
+    ...input, characterReferences: [...characterReferences, reference],
+  }), { message: '精确参考最多支持 16 张参考图' });
+  assert.equal(requests.length, 0);
+
+  await client.generateImage({ ...input, characterReferences });
+  assert.equal(requests[0].parameters.director_reference_images.length, 16);
+});
+
+test('V5 局部重绘拒绝精确参考，V4.5 局部重绘兼容服装模式和忠实度', async t => {
+  const { client, requests } = captureGeneration(t);
+  const input = {
+    prompt: 'rose', action: 'infill', image, mask: image,
+    characterReferences: [
+      { image, type: 'character_mainoutfit', fidelity: 0.4 },
+      { image, type: 'character&style_anyoutfit' },
+      { image, type: 'outfit' },
+    ],
+  };
+  for (const model of [undefined, DEFAULT_MODEL, 'nai-diffusion-5-full']) {
+    await assert.rejects(client.generateImage({ ...input, model }), {
+      message: 'V5 局部重绘暂不支持精确参考，请改用文生图/图生图或指定 V4.5 模型',
+    });
+  }
+  await assert.rejects(client.generateImage({ ...input, model: 'nai-diffusion-5-full-medium' }), {
+    message: 'V5 Full Medium 不支持精确参考，请改用 V5 Curated、V5 Full 或 V4.5 模型',
+  });
+  assert.equal(requests.length, 0);
+
+  for (const model of ['nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated']) {
+    await client.generateImage({ ...input, model });
+    const body = requests.at(-1);
+    assert.equal(body.action, 'infill');
+    assert.equal(body.model, `${model}-inpainting`);
+    assert.equal(body.parameters.mask, image);
+    assert.deepEqual(body.parameters.director_reference_descriptions.map(ref => ref.caption.base_caption),
+      ['character', 'character&style', 'costume']);
+    assert.deepEqual(body.parameters.director_reference_secondary_strength_values, [0.6, 0, 0]);
+  }
 });
 
 test('V3 传原图和提取度，V4 与 V4.5 传编码且按局部重绘能力开关', async (t) => {

@@ -21,10 +21,12 @@ import {
 import type {
   Action,
   AugmentImageParams,
+  CharacterReferenceInput,
   EncodeVibeParams,
   GenerationResult,
   ImageGenerationParams,
   NovelAIRequestPayload,
+  PreciseReferenceType,
   SubscriptionSummary,
   SuggestTagsParams,
   TagSuggestion,
@@ -77,6 +79,19 @@ function checkInteger(value: number, field: string, min: number, max: number): n
 
 function isDdim(sampler: string): boolean {
   return sampler === 'ddim' || sampler === 'ddim_v3';
+}
+
+function resolvePreciseReferenceDescription(ref: CharacterReferenceInput, supportsOutfitRef: boolean): PreciseReferenceType {
+  const rawType = ref.type === 'outfit' ? 'costume' : ref.type;
+  if (!PRECISE_REFERENCE_TYPES.includes(rawType)) throw new Error('不支持该精确参考类型');
+
+  let type: PreciseReferenceType = rawType;
+  if (rawType === 'character' && ref.prefer_same_outfit === true) type = 'character_mainoutfit';
+  else if (rawType === 'character&style' && ref.prefer_same_outfit === false) type = 'character&style_anyoutfit';
+
+  if (!supportsOutfitRef && type === 'character_mainoutfit') return 'character';
+  if (!supportsOutfitRef && type === 'character&style_anyoutfit') return 'character&style';
+  return type;
 }
 
 function buildGenerationRequest(params: ImageGenerationParams): {
@@ -198,14 +213,15 @@ function buildGenerationRequest(params: ImageGenerationParams): {
 
   if (params.characterReferences?.length) {
     parameters.director_reference_images = params.characterReferences.map(ref => requireImage(ref.image, 'character_references.image'));
-    parameters.director_reference_descriptions = params.characterReferences.map(ref => {
-      if (!PRECISE_REFERENCE_TYPES.includes(ref.type)) throw new Error('不支持该精确参考类型');
-      return { caption: { base_caption: ref.type, char_captions: [] }, legacy_uc: false };
-    });
+    parameters.director_reference_descriptions = params.characterReferences.map(ref => ({
+      caption: { base_caption: resolvePreciseReferenceDescription(ref, capability.supportsOutfitRef), char_captions: [] },
+      legacy_uc: false,
+    }));
     parameters.director_reference_information_extracted = params.characterReferences.map(() => 1);
-    parameters.director_reference_strength_values = params.characterReferences.map(ref => checkRange(ref.strength ?? 1, '精确参考强度', 0, 1));
+    parameters.director_reference_strength_values = params.characterReferences.map(ref =>
+      checkRange(ref.strength ?? 1, '精确参考强度', 0, capability.preciseRefStrengthMax));
     parameters.director_reference_secondary_strength_values = params.characterReferences.map(ref => (
-      Number((1 - checkRange(ref.fidelity ?? 1, '精确参考忠实度', 0, 1)).toFixed(4))
+      capability.supportsPreciseRefFidelity ? Number((1 - checkRange(ref.fidelity ?? 1, '精确参考忠实度', 0, 1)).toFixed(4)) : 0
     ));
   }
 

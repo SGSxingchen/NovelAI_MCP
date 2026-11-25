@@ -13,7 +13,7 @@
       }
     } catch {}
   </script>
-  <link rel="stylesheet" href="./styles.css?v=studio-library-2">
+  <link rel="stylesheet" href="./styles.css?v=studio-library-3">
 </head>
 <body>
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
@@ -335,7 +335,7 @@
               <div class="studio-card-head">
                 <div>
                   <h3 class="studio-card-title">模型与画幅</h3>
-                  <p id="studioModelNotice" class="studio-card-desc">V5 默认支持多达 32 角色、自然语言描述与透明背景</p>
+                  <p id="studioModelNotice" class="studio-card-desc">V5 默认支持精确参考（角色/画风/服装）、最多 32 角色与透明背景</p>
                 </div>
               </div>
               <div class="param-grid-2">
@@ -447,8 +447,8 @@
             <div id="studioRefCard" class="studio-card" hidden>
               <div class="studio-card-head">
                 <div>
-                  <h3 class="studio-card-title">风格与角色参考图</h3>
-                  <p id="studioRefHint" class="studio-card-desc">Vibe 氛围参考与精确角色参考互斥，系统自动按当前模型校验</p>
+                  <h3 class="studio-card-title">风格、角色与服装参考图</h3>
+                  <p id="studioRefHint" class="studio-card-desc">支持角色、画风与服装精确参考（强度 0~5，可多张自由混搭；每张参考图约 +5 Anlas）</p>
                 </div>
                 <div class="segmented-mini" role="radiogroup" aria-label="参考图模式">
                   <button type="button" class="seg-mini-btn is-active" data-ref-mode="none">关闭</button>
@@ -1103,6 +1103,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="./app.js?v=studio-library-2"></script>
+  <script type="module" src="./app.js?v=studio-library-3"></script>
 </body>
 </html>
