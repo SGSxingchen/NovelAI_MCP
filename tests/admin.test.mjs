@@ -466,14 +466,14 @@ test('独立设置链接披露模式，切换只断开该链接旧会话', { tim
   const health = await json(request(origin, '/health'));
   assert.equal(health.disclosureMode, 'legacy');
   assert.equal(health.progressiveTools, 3);
-  assert.equal(health.totalActions, 13);
+  assert.equal(health.totalActions, 17);
   assert.deepEqual((await json(api(origin, '/overview', { cookie }))).disclosure, { ...defaultDisclosure, defaultMode: 'legacy' });
 
   const list = { id: 2, method: 'tools/list' };
   const names = async (path, session) => (await rpcResult(postMcp(origin, path, list, session))).tools.map(tool => tool.name);
   const localSession = await openMcp(origin, '/mcp');
   const legacyTools = await names('/mcp', localSession);
-  assert.equal(legacyTools.length, 13);
+  assert.equal(legacyTools.length, 17);
   assert.ok(legacyTools.includes('generate_image'));
   assert.ok(legacyTools.includes('get_v5_stylist_guide'));
   const progressiveTools = ['nai_discover', 'nai_describe', 'nai_execute'];

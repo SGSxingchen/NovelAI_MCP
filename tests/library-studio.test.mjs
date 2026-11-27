@@ -383,7 +383,7 @@ test('管理台与渐进式 MCP 共用内存词库，发现、描述、执行与
   const progressiveList = await mcp('tools/list');
   const legacyList = await legacy('tools/list');
   assert.deepEqual(progressiveList.tools.map(tool => tool.name), ['nai_discover', 'nai_describe', 'nai_execute']);
-  assert.equal(legacyList.tools.length, 13);
+  assert.equal(legacyList.tools.length, 17);
   const savedPercent = 1 - Buffer.byteLength(JSON.stringify(progressiveList)) / Buffer.byteLength(JSON.stringify(legacyList));
   assert.ok(savedPercent >= 0.85, '工具列表缩小 ' + savedPercent * 100 + '%');
 
@@ -392,10 +392,10 @@ test('管理台与渐进式 MCP 共用内存词库，发现、描述、执行与
   const { modules } = mcpData(await tool('nai_discover', { module: 'library' }));
   assert.deepEqual(modules.map(item => item.module), ['library']);
   const actions = modules[0].actions.map(item => item.name);
-  assert.deepEqual(actions, ['search_artist_library', 'search_prompt_library', 'save_library_entry']);
+  assert.deepEqual(actions, ['search_artist_library', 'search_prompt_library', 'search_nai_lexicon', 'save_library_entry']);
   const described = mcpData(await tool('nai_describe', { actions })).actions;
   assert.deepEqual(described.map(item => item.name), actions);
-  assert.deepEqual(described[2].inputSchema.required, ['target', 'entry']);
+  assert.deepEqual(described[3].inputSchema.required, ['target', 'entry']);
 
   const previewImageId = 'B'.repeat(43);
   const artistBody = { name: '水彩笔法', tag: 'artist:sample', categories: ['水彩'], models: ['V5'], defaultWeight: 1.2, previewImageId };
