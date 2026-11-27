@@ -1,9 +1,13 @@
 export const V5_STYLIST_TOPICS = [
   'full',
   'workflow',
+  'seven_dimensions',
+  'tag_budget',
   'blueprints',
   'artist_mix',
   'decontaminate',
+  'advanced_engineering',
+  'reverse_and_audit',
   'gotchas',
 ] as const;
 export type V5StylistTopic = (typeof V5_STYLIST_TOPICS)[number];
@@ -148,6 +152,65 @@ export const V5_STYLE_BLUEPRINTS: Record<V5StyleBlueprintId, V5StyleBlueprint> =
 
 export const V5_STYLIST_RESOURCE_URI = 'novelai://skills/v5-stylist';
 
+const SEVEN_DIMENSIONS = `## 一图一主张与七维决策 · NAI 版
+
+**一图一主张**。先圈定一个最高对比点、一档主导明度、一个主动作和一个色彩事件，其余画面要素降为陪衬。动笔前找一处叙事破口，例如两把椅子都拉开却只来了一人，或雨停了伞还举着。把 \`oppressive\`、\`lonely\`、\`dramatic lighting\` 留在构思阶段，落笔时换成能看见的距离、角度与光线，例如 \`the ceiling sits one hand's width above her hair\`。
+
+1. **瞬间**。锁定事件前后 0.3 秒内的一帧。用 \`hand still hovering above the cup\` 留住未完成的动作，用 \`steam still curling\` 留住残存的物证。眼神落在现场对象上，重心压在一侧。
+2. **明度结构**。让 \`dark / mid / bright\` 中一档占画面 55%–70%。阴影里最亮的亮部，必须暗于亮部里最暗的暗部。高调用两到三处具体黑色材质压住明度（G4），低调用一处接近过曝但还保留纹理的实体高光撑住亮度。
+3. **光**。写 \`sidelighting / backlighting / crack_of_light\` 方位，指定光边落在两到四处结构表面，再给距离与光比，例如 \`key to fill 8:1, light dies within arm's reach, background falls three stops under\`。硬光明确写 \`each shadow edge is cut like a blade, with no gradient at all\`。交代布光时避开 \`lamp / bulb / fluorescent tube\` 等会被直接画出来的灯具名（G41）。
+4. **空间与镜头**。从 \`very_wide_shot, wide_shot, full_body, cowboy_shot, upper_body, portrait, close-up\` 选一个景别，再按需搭配 \`feet_out_of_frame, head_out_of_frame, cropped_legs\` 裁切，或用 \`foreshortening, vanishing_point, atmospheric_perspective, depth_of_field, blurry_background\` 定透视。用同深度的横向结构给人体找参照，例如 \`the top of her head sits slightly below the top edge of the lockers\`。主体放在 \`0.33 / 0.67\` 三分线，避开 \`0.45–0.55\` 居中区，在另一侧写 \`negative_space\` 并指明空域内容，如一段暗墙。
+5. **色彩**。把四种色彩角色的面积分成约 60（低饱和环境）/ 30（主体固有色）/ 8（唯一高饱和点缀色，上限 10%）/ 2（中性锚或暖肤色）。颜色挂在被照亮的大块表面上（G9），例如占画面一角的钴蓝门板。要留住暗部色偏，用 \`colored_shadow, hue_shifting\` 并点明阴影覆盖的材质。
+6. **材质**。用特定光线下的表面行为取代 \`detailed\`。湿发可以写 \`wet hair strands clumped and stuck to cheek\`，金属可以写 \`bright scratches on raised ridges\`。用 \`sharp only on face, softening past shoulder\` 明确锐度从哪里开始下降。
+7. **收尾**。按物理媒介选择 \`film grain\`、\`0.8::chromatic aberration::\`、\`bloom / halation\` 或 \`vignetting\`。用一句话指定最亮与最暗分别落在哪种材质上，例如一条金属亮边 \`stops one step short of blowing out\`，最暗处停在围巾的黑色褶缝里。`;
+
+const TAG_BUDGET = `## 35 Tag 黄金预算与 V5 3-Tier 架构
+
+用 10,958 条 NovelAI 社区语料标定起笔预算。V5 样本中位数为 33 Tag，第 75 百分位为 47 Tag，超过 60 Tag 进入退化尾部。约 35 Tag 是起点。V5 Curated 有效上下文约 703 tokens，V5 Full 约 1471 tokens。
+
+| 分配 | Tag 数 | 用法 |
+| --- | --- | --- |
+| 人数与画师串 | 4–6 | 三阶画师链依次负责骨架、特征与表层笔触。社区常见 3–8 位画师，中位 6 位，82.3% 的画师串落在全词串前 1/4。 |
+| 外貌与身份锚 | 6–8 | 优先保留能认出角色的特征。 |
+| 服装与配饰 | 3–5 | 保留剪影、面料和关键配饰。 |
+| 动作与姿态主轴 | 2–3 | 锁定一个主动作及其重心。 |
+| 场景与环境 | 3–4 | 点明地面、空间边界与临近结构。 |
+| 光影方向与效果 | 3–4 | 写方向、边缘质量与主要光效。 |
+| 构图与镜头景别 | 3–4 | 写景别、机位、裁切或留白。 |
+| 材质与物理状态 | 2–3 | 写受光面可见的行为。 |
+| 收尾与媒介质感 | 2–3 | 留给纸纹、胶片或印刷效果。 |
+
+- **光影与构图合计 6–8 Tag**。少于 4 Tag 容易退回均光与居中。末尾留 1–3 句英文自然语言，把 0.3 秒内未完成的动作、光路落点与三档衰减、不对称留白及尺度对位、一个能看见的材质行为写进同一场景。
+- **质量词和预设按画风取舍**。常规插画可以使用 \`masterpiece, best quality, very aesthetic\`。采用 \`1.3::halftone::, 1.2::screentone::, 1.2::dithering::\` 等印刷效果时，设置 \`quality_preset: "none"\`，并选择 \`uc_preset: "light"\` 或 \`"none"\` 保存网点和颗粒。
+- **权重壳纪律**。V5 样本的权重写法中 95.3% 使用 \`weight::tag::\`。使用 \`1.2::tag::\`、\`0.65::artist::\`、\`-2::unwanted::\` 这样的闭合权重壳，将 \`(word:1.2)\` 转成 \`1.2::word::\`。常规正权重为 0.5–1.5，优先只加权 3–5 处，成稿中的加权项最多占 30%。
+
+V5 精品样本中 41.1% 使用角色子提示词，多人场景的比例超过 55%。V5 和 V4.5 都支持以下三层分工。
+
+1. \`base_prompt\` 写全局媒介、画师串、镜头机位、环境光影与角色间的交互。
+2. 每个 \`characters[i]\` 只写该角色的外貌、发色、瞳色、服装及手持物。用归一化的 \`center_x / center_y\` 把角色放到对应的画面位置。
+3. \`base_negative_prompt\`（UC）收纳全局不希望出现的内容。某个角色特有的排除项放在其 \`negative_prompt\`。
+
+V4.5 可沿用数字权重壳，提示词长度按对应模型校准。用户指定 V3 时，将角色属性和交互写进 \`base_prompt\`，通过 \`base_negative_prompt\` 管理全局负向词，强调或弱化词分别使用 \`{tag}\` 和 \`[tag]\`。`;
+
+const ADVANCED_ENGINEERING = `## NAI 专项进阶防崩工程 P1–P8
+
+- **P1 先验解绑，避免正向反激活**。无光环的羽翼角色用 \`1girl, wings, feathered wings\` 起笔，移除 \`angel / angelic / seraph\`。正向写实际发型、发饰，以及占住头顶空间的树枝或屋檐。删掉 \`no halo / without halo / nothing hovering above head\` 这类正向否定句，避免再次激活光环。把 \`halo, head halo, floating halo\` 移入 \`base_negative_prompt\`，或在正向单独用 \`-2::halo, head halo, floating halo::\` 压制。胸前有饮品时给双手明确动作，如 \`arms swing naturally at her sides\` 或 \`hands in pockets\`，并在 UC 排除 \`holding cup\`。非婚礼的白裙场景把 \`veil, bridal veil, wedding\` 加入 UC，或用内联 \`-2::veil, bridal veil, wedding::\`。
+- **P2 大动态格斗与低机位透视**。先拆四个动作相位，再选一个画面瞬间：蓄势（-0.2s）折翼后收、击发（0.0s）\`1.2::aerial falcon dive::, shockwave\`、滞空（+0.2s）翼尖仍向前摆、收势（+0.4s）\`braking wing\` 单翼向前展开刹住。持刃姿态在同一句写清主手与副手的落位，例如 \`left hand pulled tight at her hip in a clenched counterbalance fist\` 或 \`gripping scabbard\`，减少多臂、断刃。复杂低机位先去掉 \`full_body\`，以裁切和透视物证交代景别。\`from_below, foreshortening\` 要配脸部比例保护句，例如 \`tracking along the flat plane of the blade, keeping facial proportions strictly intact\`，避免鞋底过分放大（B3）。
+- **P3 双人对峙与四手全清点**。用 \`characters\` 隔离外貌，左右分别设 \`center_x: 0.3\` 和 \`center_x: 0.7\`。在全局交互句中逐一写出两人的左右手、手中物及接触点（Quad-Lock）。如果只有一人有羽翼，用对手槽位的 \`without wings\` 明确排他特征，也可以把 \`wings\` 写入对手负向槽或用 \`-2::wings::\`。将 \`bright orange sparks, shockwave ring\` 的高光和扰动集中在兵刃交汇处。
+- **P4 介质成像与物理光学**。纯水洼倒影交代四项证据：镜头俯看、反射沿水面切线出现、倒像上下颠倒、涟漪或落叶打断反射。隔雨窗看人时用 \`water rivulets cover the entire glass with zero clear spots\`，点名水痕必须 \`slide directly over her face, her hair, her chest\`，再加 \`refracting and distorting contours\` 交代水膜的微透镜形变。用 \`caustics\` 写穿水光斑、\`refraction\` 写折线、\`subsurface_scattering\` 写透薄材质的暖边、\`crack_of_light\` 写窄光束的落点、\`partially_underwater_shot\` 写水线两侧不同的轮廓。
+- **P5 三级战损与四层机能穿搭**。轻度写凸起边缘的擦痕与积尘，中度写破缝、卷边和局部露出的里料，重度写断开的固定件与错位的外层，交代剩余支撑点。机能穿搭由贴身底层、保温或保护中层、耐磨外壳、外置绑带或工具四层组成。给各层独立的材质、开口和受光边界，可读性集中在剪影与接缝。
+- **P6 双色温暗脊**。主色温照亮约九份面积，副色温限于一份边缘或反光，形成 9:1 面积阶梯。沿身体中央的遮挡面保留暗脊（Occlusion Spine），用 \`separated by clean dark neutral mid-tones\` 把主副光断开，避免受光面被混成大片灰色。
+- **P7 极端机位的排他事实**。约 60° 大俯拍写出四条证据：看得见头顶发旋，肩叠在胸上形成垂向缩短，只见鞋面而看不到鞋底，地面线条从脚边向远处退行。保留 \`from_above\` 等机位词来固定这组事实。
+- **P8 单图四格分镜**。用 \`4koma, comic, multiple_views\` 开篇，在 \`base_prompt\` 依次写特写眼神、中景出招、全景交代空间、落地收势。每格只承载一个动作阶段，用全局媒介和分槽角色属性保持统一。`;
+
+const REVERSE_AND_AUDIT = `## 参考图反推与出图差值单句微调
+
+1. **先看结构再测光**。先用肉眼确认谁遮谁、手脚接触哪里、动作停在哪一帧。用 \`probe_image\` 测 BT.709 明度三档 \`dark / mid / bright\`、最亮与最暗区域、亮暗部饱和度 \`lit / shadow\`、边缘 \`strong / flat\`、6×6 明度位置和 16×11 真实 HEX 色号。图上可测得的数值用来定位画面差异，光源方向和叙事依然按可见物证判断。
+2. **二十问盲读取证（Forensic 20 Questions）**。调用 \`probe_image\` 时启用 \`include_forensic_sop\`，逐项核对返回的 \`forensic_20_questions\`。第一问永远是“脸看得见吗”。没脸就明确写 \`from_behind / face out of frame / silhouette\`，避免模型补一张转向镜头的脸。看不清的小物件只用 \`a small pale ornament\` 等低粒度描述。
+3. **色号与参照物一起写**。用 \`a dull printing blue (#3462AB), the colour of water on an old map\` 加 \`covering about a tenth of the frame\` 给出颜色、对象与面积。把竖图改成 21:9 横图时，先重算角色的手脚支撑接触链。若栏杆已经够不到，改写为手抓自己的衣领或肩带，收掉原来那只手与栏杆的联系。
+4. **出图前过十三道关**。把写好的提示词和 \`reference_image\` 交给 \`lint_prompt\`，先修正语法、明度与色彩冲突，再看镜头、预设、角色槽和动作检查。
+5. **出图后按差值开处方**。用 \`verify_image\` 比较参考图和出图，选择优先级最高的 \`diagnoses\` 条目，沿 \`nai_fix\` 只改 \`base_prompt\` 中那一句，再出图复测。没有参考图时也可对出图调用 \`probe_image\`，检查明度面积、色相落点及材料亮边是否达到自己的目标。`;
+
 export const V5_STYLIST_FULL_GUIDE = `# novelai-v5-stylist
 
 Engineer high-recognizability, bespoke visual styles and production-ready prompt packages for NovelAI Diffusion V5 (\`nai-diffusion-5-curated\` by default, plus \`nai-diffusion-5-full\`) by combining de-homogenized quality settings, stepped artist weight mixes, physical medium anchors, and natural-language composition direction.
@@ -213,6 +276,14 @@ Eliminate residual generic AI sheen and artist-coupled artifacts before finalizi
 - **Prompt Guidance calibration**: Recommend lower Guidance (\`scale: 3.5\` to \`4.8\`) for painterly, watercolor, and dreamy analog textures, and standard-to-higher Guidance (\`scale: 5.0\` to \`6.5\`) for razor-sharp graphic posters, halftone dots, and intricate typography.
 - **Output format**: Present every finished prompt package with five complete sections: \`Model & Settings\` (variant, resolution, steps/effort, guidance, quality toggle, UC preset), \`Positive Prompt\` (\`[Medium & Palette] + [Stepped Artists] + [Natural Language Scene]\`), \`Character Prompts\` (if multi-character), \`Undesired Content / Negative Emphasis\`, and 2 to 3 \`0.05\`-step \`Fine-Tuning Knobs\`.
 
+${SEVEN_DIMENSIONS}
+
+${TAG_BUDGET}
+
+${ADVANCED_ENGINEERING}
+
+${REVERSE_AND_AUDIT}
+
 ## Gotchas
 
 - **Default painterly creep**: If an anime or flat-color prompt keeps turning semi-realistic or plasticky, check whether \`Add Quality Tags\` is still enabled (\`quality_preset\` not set to \`"none"\`) or whether a high-detail digital painter is sitting above \`0.4\` weight near the front of the prompt.
@@ -223,8 +294,8 @@ Eliminate residual generic AI sheen and artist-coupled artifacts before finalizi
 ## MCP Parameter Mapping (Quick Reference)
 
 - Default model: \`nai-diffusion-5-curated\` (omit \`model\` unless the user explicitly asks for another variant; never downgrade to V4.5 on your own)
-- Strip quality tags: \`quality_preset: "none"\`
-- Preserve halftone/chromatic aberration/grain: \`uc_preset: "light"\` or \`"none"\`
+- Disable the quality preset for delicate print and analog textures with \`quality_preset: "none"\`.
+- Preserve halftone, chromatic aberration, and grain with \`uc_preset: "light"\` or \`"none"\`.
 - Guidance (\`scale\`): painterly/analog \`3.5 - 4.8\`, sharp graphic/poster/typography \`5.0 - 6.5\`
 - Medium Effort locked mode: \`model: "nai-diffusion-5-full-medium"\` (put \`-3::unwanted_item::\` inline in \`base_prompt\`)
 - Native free-friendly aspect ratios (≤ 1,048,576 px): \`832×1216\`, \`1216×832\`, \`704×1408\`, \`1024×1024\`
@@ -236,7 +307,11 @@ const TOPIC_SECTIONS: Record<Exclude<V5StylistTopic, 'full'>, string> = {
 2. **先锚定物理媒介、流派与色板**：把 \`traditional media / faux traditional media / mixed media\` + 具体工具（\`watercolor (medium)\` / \`ink (medium)\` / \`nib pen (medium)\`）+ 线条/流派 + 色板限制（\`limited palette\` / \`spot color\`）+ 印刷纹理权重（\`1.3::halftone::\`）放在 \`base_prompt\` 最前面。
 3. **三阶画师权重链（骨架 -> 特征 -> 釉彩）**：\`1.0~1.25\` 首位定解剖与剪影 -> \`0.45~0.85\` 中段 2~4 位调五官与衣褶 -> \`0.15~0.30\` 末位微剂量借色感与笔触；按 \`0.05\` 步进微调。
 4. **自然语言导演构图与排版**：紧跟标签段用清晰英/日自然语言描述镜头、负空间、分镜和引号内文字（\`"..."\`，V5 Full 支持最多 750 字符）；多人或漫画页把角色拆进 \`characters\` 槽位配坐标。
-5. **去污染与 Guidance 标定**：用 \`-2.0::tag::\` ~ \`-3.0::tag::\` 剔除塑料感或画师自带 IP 配件（\`nai-diffusion-5-full-medium\` 下直接写进 \`base_prompt\`）；水彩/厚涂/梦幻质感 \`scale: 3.5~4.8\`，锐利海报/网点/排版 \`scale: 5.0~6.5\`。`,
+5. **去污染与 Guidance 标定**：用 \`-2.0::tag::\` ~ \`-3.0::tag::\` 剔除塑料感或画师自带 IP 配件（\`nai-diffusion-5-full-medium\` 下直接写进 \`base_prompt\`）；水彩/厚涂/梦幻质感 \`scale: 3.5~4.8\`，锐利海报/网点/排版 \`scale: 5.0~6.5\`。
+
+有参考图时先用 \`probe_image\` 测光，再按七维决策和 35 Tag 预算写稿。出图前用 \`lint_prompt\` 检查十三道关，出图后用 \`verify_image\` 决定下一次只改哪一句。`,
+  seven_dimensions: SEVEN_DIMENSIONS,
+  tag_budget: TAG_BUDGET,
   blueprints: Object.values(V5_STYLE_BLUEPRINTS)
     .map(item => [
       `### ${item.name} (\`${item.id}\`)`,
@@ -263,6 +338,8 @@ NovelAI V5 对画师权重高度敏感（\`0.05\` ~ \`0.10\` 变化即肉眼可�
   - 写意厚涂、水彩、复古/梦幻模拟介质：\`3.5\` ~ \`4.8\`
   - 锐利平面海报、网点、高对比线稿与复杂文字排版：\`5.0\` ~ \`6.5\`
 - **交付五段式提示词包**：\`Model & Settings\` + \`Positive Prompt\`（\`[媒介色板] + [阶梯画师] + [自然语言构图]\`）+ \`Character Prompts\` + \`Undesired Content / Negative Emphasis\` + 2~3 个 \`0.05\` 步进微调旋钮。`,
+  advanced_engineering: ADVANCED_ENGINEERING,
+  reverse_and_audit: REVERSE_AND_AUDIT,
   gotchas: `### NovelAI V5 风格工程常见坑（Gotchas）
 1. **默认厚涂塑料感回潮（Default painterly creep）**：检查 \`quality_preset\` 是否未关（需设 \`"none"\`），或高细节厚涂画师是否以 \`>0.4\` 权重排在了前段。
 2. **黑白/单点专色被“破功”染成全彩**：使用 \`monochrome\` / \`greyscale\` / \`spot color\` 时，必须删除所有非焦点元素的发色、瞳色、衣着颜色词，否则 V5 会把整图重新上色。

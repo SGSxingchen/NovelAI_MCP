@@ -7,7 +7,8 @@
     "novelai-mcp-server": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "data"
   ],
   "scripts": {
     "build": "tsc",

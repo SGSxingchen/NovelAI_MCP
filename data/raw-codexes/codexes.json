@@ -1,0 +1,948 @@
+[
+  {
+    "id": "artist_nai5_personal",
+    "type": "string",
+    "title": "NovelAI v5画师词典",
+    "version": "2026.11.19",
+    "author": "花枝鱼 / 九七 / 无冕 / 成川姬 / W.O.F / 梦神 / 雨燕 / wwuumm / MayRain / AgIzT / u/Carlyone",
+    "entryCount": 31163,
+    "imagedCount": 31163,
+    "hasOriginal": true,
+    "source": "花枝鱼 · NAI5单画师测试图 / 九七 · 5F单artist画风炼度参考 / 无冕 · N5单画师300筛选 / 成川姬 · N5F单画师测试 / W.O.F · W.O.F V5画风栈堆迭代 Ver_1.0 / 社区 · NAI5F画风合集 / 雨燕 · 单画师测试图（NAI5，JPG无原图） / wwuumm · 购物（NAI5 Full，JPG无原图） / MayRain · V5 单画师例图（NAI5 Full） / AgIzT · V5 单画师横竖例图 / u/Carlyone · nax.moe Artist Tags - Loose Prompt（CC BY 4.0，WebP 缩成 JPG，无原图） / 拉风de茶 · N5混合画师串例图集",
+    "contributors": [
+      {
+        "name": "花枝鱼",
+        "role": "NAI5单画师测试图 · 词条整理 / 配图数据提供"
+      },
+      {
+        "name": "九七",
+        "role": "5F单artist画风炼度参考 · 词条整理 / 配图数据提供"
+      },
+      {
+        "name": "无冕",
+        "role": "N5单画师300筛选 · 词条整理 / 配图数据提供"
+      },
+      {
+        "name": "成川姬",
+        "role": "N5F单画师测试 · 词条整理 / 配图数据提供"
+      },
+      {
+        "name": "W.O.F",
+        "role": "W.O.F V5画风栈堆迭代 Ver_1.0 · 词条整理 / 配图数据提供"
+      },
+      {
+        "name": "梦神",
+        "role": "NAI5F画风合集 · 社区素材收集 / 配图数据提供"
+      },
+      {
+        "name": "雨燕",
+        "role": "单画师测试图 · 标签与配图数据提供"
+      },
+      {
+        "name": "wwuumm",
+        "role": "购物 · 标签与配图数据提供"
+      },
+      {
+        "name": "MayRain",
+        "role": "V5单画师例图 · 标签与原图提供"
+      },
+      {
+        "name": "AgIzT",
+        "role": "V5 单画师横竖例图 · 标签与原图提供"
+      },
+      {
+        "name": "u/Carlyone",
+        "role": "nax.moe Artist Tags - Loose Prompt · 配图提供（CC BY 4.0）"
+      },
+      {
+        "name": "拉风de茶",
+        "role": "N5混合画师串例图集 · 整理者"
+      }
+    ],
+    "links": [
+      {
+        "label": "nax.moe · Artist Tags - Loose Prompt",
+        "url": "https://nax.moe/?gallery=danbooru-artist-tags-2-v5"
+      },
+      {
+        "label": "CC BY 4.0 许可",
+        "url": "https://creativecommons.org/licenses/by/4.0/"
+      }
+    ],
+    "cover": "artist_nai5_personal_jiuqi_0001.png",
+    "coverRev": "28620c7a6fe3f640",
+    "updateFilters": [
+      {
+        "id": "2026.8.25",
+        "label": "8.25更新"
+      },
+      {
+        "id": "2026.9.5",
+        "label": "9.5更新"
+      },
+      {
+        "id": "2026.9.6",
+        "label": "9.6更新"
+      },
+      {
+        "id": "2026.9.9",
+        "label": "9.9更新"
+      },
+      {
+        "id": "2026.9.10",
+        "label": "9.10更新"
+      },
+      {
+        "id": "2026.9.13",
+        "label": "9.13更新"
+      },
+      {
+        "id": "2026.10.1",
+        "label": "10.1更新"
+      },
+      {
+        "id": "2026.10.7",
+        "label": "10.7更新"
+      },
+      {
+        "id": "2026.10.24",
+        "label": "10.24更新"
+      },
+      {
+        "id": "2026.11.15",
+        "label": "11.15更新"
+      },
+      {
+        "id": "2026.11.18",
+        "label": "11.18更新"
+      },
+      {
+        "id": "2026.11.19",
+        "label": "11.19更新",
+        "latest": true
+      }
+    ],
+    "tree": [
+      {
+        "name": "单画师词典",
+        "count": 30143,
+        "children": [
+          {
+            "name": "花枝鱼",
+            "count": 384,
+            "children": [
+              {
+                "name": "NAI5单画师测试图",
+                "count": 384,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "九七(无原图)",
+            "count": 437,
+            "children": [
+              {
+                "name": "5F单artist画风炼度参考",
+                "count": 437,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "雨燕(无原图)",
+            "count": 2806,
+            "children": [
+              {
+                "name": "单画师测试图",
+                "count": 2806,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "MayRain",
+            "count": 12703,
+            "children": [
+              {
+                "name": "V5 单画师例图（NAI5 Full）",
+                "count": 12703,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "无冕",
+            "count": 300,
+            "children": [
+              {
+                "name": "N5单画师300筛选",
+                "count": 300,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "成川姬",
+            "count": 87,
+            "children": [
+              {
+                "name": "N5F单画师测试（2025–2026）",
+                "count": 87,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "AgIzT",
+            "count": 2480,
+            "children": [
+              {
+                "name": "V5 单画师横竖例图",
+                "count": 2480,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "nax.moe(无原图)",
+            "count": 9955,
+            "children": [
+              {
+                "name": "Artist Tags - Loose Prompt（NAI5 Full）",
+                "count": 9955,
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "wwuumm(无原图)",
+            "count": 991,
+            "children": [
+              {
+                "name": "购物",
+                "count": 991,
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "画风组词典",
+        "count": 1020,
+        "children": [
+          {
+            "name": "W.O.F V5画风栈堆迭代 Ver_1.0",
+            "count": 159,
+            "children": []
+          },
+          {
+            "name": "NAI5F画风合集",
+            "count": 711,
+            "children": []
+          },
+          {
+            "name": "N5混合画师串例图集",
+            "count": 150,
+            "children": [
+              {
+                "name": "笔触",
+                "count": 25,
+                "children": []
+              },
+              {
+                "name": "风格化",
+                "count": 37,
+                "children": []
+              },
+              {
+                "name": "厚涂",
+                "count": 34,
+                "children": []
+              },
+              {
+                "name": "渐变",
+                "count": 33,
+                "children": []
+              },
+              {
+                "name": "shiny skin",
+                "count": 21,
+                "children": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "newFilterLabel": "本次11.19更新"
+  },
+  {
+    "id": "suozhang",
+    "cover": "cover-front-20261027.jpg",
+    "coverRev": "2adb9968397abc96",
+    "type": "codex",
+    "title": "所长N4.5常规NovelAI个人法典",
+    "selectorTitle": "所长NAI v4.5常规法典",
+    "version": "2026.10.27",
+    "newFilterLabel": "本次10.27更新",
+    "author": "戒红所",
+    "entryCount": 6043,
+    "imagedCount": 5693,
+    "hasOriginal": true,
+    "source": "戒红所 · 所长常规法典",
+    "contributors": [
+      {
+        "name": "戒红所",
+        "role": "法典原作者"
+      },
+      {
+        "name": "拉风de茶",
+        "role": "配图数据提供"
+      }
+    ],
+    "updateFilters": [
+      {
+        "id": "2026.7.15",
+        "label": "7.15更新"
+      },
+      {
+        "id": "2026.8.14",
+        "label": "8.14更新"
+      },
+      {
+        "id": "2026.8.31",
+        "label": "8.31更新"
+      },
+      {
+        "id": "2026.9.13",
+        "label": "9.13更新"
+      },
+      {
+        "id": "2026.9.25",
+        "label": "9.25更新"
+      },
+      {
+        "id": "2026.10.13",
+        "label": "10.13更新"
+      },
+      {
+        "id": "2026.10.27",
+        "label": "10.27更新",
+        "latest": true
+      }
+    ]
+  },
+  {
+    "id": "suozhang_nai5",
+    "cover": "cover-back-20261027.jpg",
+    "coverRev": "b2c40a5d8170aa38",
+    "type": "codex",
+    "title": "所长N5常规NovelAI个人法典",
+    "selectorTitle": "所长NAI v5常规法典",
+    "version": "2026.10.27",
+    "author": "戒红所",
+    "entryCount": 304,
+    "imagedCount": 289,
+    "hasOriginal": true,
+    "source": "戒红所 · N5所长法典",
+    "contributors": [
+      {
+        "name": "戒红所",
+        "role": "法典原作者"
+      }
+    ],
+    "newFilterLabel": "本次10.27更新",
+    "updateFilters": [
+      {
+        "id": "2026.9.13",
+        "label": "9.13更新"
+      },
+      {
+        "id": "2026.9.25",
+        "label": "9.25更新"
+      },
+      {
+        "id": "2026.10.13",
+        "label": "10.13更新"
+      },
+      {
+        "id": "2026.10.27",
+        "label": "10.27更新",
+        "latest": true
+      }
+    ]
+  },
+  {
+    "id": "artist_nai45_personal",
+    "aliases": [
+      "artist_300",
+      "artist_45_collection",
+      "artist_nai45_strings"
+    ],
+    "type": "string",
+    "title": "NovelAI v4.5画师词典",
+    "version": "2026.8.23",
+    "author": "千早爱音 / 兔 / 未署名 / PieDriver / 梦神",
+    "entryCount": 5468,
+    "imagedCount": 5389,
+    "hasOriginal": true,
+    "source": "300画师(4.5F版) / 千早爱音的单画师收藏 / 兔兔的4.5画师收录 / PieDriver · W.O.F_画风 / 梦神 · NAI4.5F画风合集",
+    "contributors": [
+      {
+        "name": "未署名",
+        "role": "300画师(4.5F版) · 素材来源"
+      },
+      {
+        "name": "千早爱音",
+        "role": "单画师收藏 · 词条整理 / 配图数据提供"
+      },
+      {
+        "name": "兔",
+        "role": "4.5画师收录 · 词条整理 / 配图数据提供"
+      },
+      {
+        "name": "PieDriver",
+        "role": "词条整理 / 配图数据提供"
+      },
+      {
+        "name": "梦神",
+        "role": "NAI4.5F 画风合集 · 词条整理 / 配图数据提供"
+      }
+    ],
+    "cover": "artist_300_0001.jpg",
+    "coverRev": "868c09e4f9ba0f13",
+    "coverCodexId": "artist_300",
+    "newFilterLabel": "本次8.23更新",
+    "updateFilters": [
+      {
+        "id": "2026.8.23",
+        "label": "8.23更新",
+        "latest": true
+      }
+    ]
+  },
+  {
+    "id": "nai5_community_pack",
+    "type": "pack",
+    "title": "NovelAI v5社区精选图包",
+    "selectorTitle": "V5 社区图包",
+    "version": "2026.11.12",
+    "author": "梦神 / 所长 / 社区贡献者",
+    "entryCount": 4096,
+    "imagedCount": 4096,
+    "hasOriginal": true,
+    "source": "梦神 · N5精选图包 / 所长 · 韩网N5作品筛选整理1–10 / 梦神 · 九月韩网整理",
+    "contributors": [
+      {
+        "name": "梦神",
+        "role": "N5精选图包 · 原图与参数整理 / 常规与 NSFW 分类"
+      },
+      {
+        "name": "所长",
+        "role": "韩网N5作品筛选整理1–9 · 原图与参数整理 / 套图归组"
+      }
+    ],
+    "links": [],
+    "cover": "nai5_community_pack_mengshen_korean_0001.jpg",
+    "coverRev": "20b19052f7f26211",
+    "emptyCategories": [
+      [
+        "所长 · N5韩网图包",
+        "R18G"
+      ]
+    ],
+    "newFilterLabel": "本次11.12更新",
+    "updateFilters": [
+      {
+        "id": "2026.9.1",
+        "label": "9.1更新",
+        "latest": false
+      },
+      {
+        "id": "2026.9.7",
+        "label": "9.7更新",
+        "latest": false
+      },
+      {
+        "id": "2026.9.19",
+        "label": "9.19更新",
+        "latest": false
+      },
+      {
+        "id": "2026.9.26",
+        "label": "9.26更新",
+        "latest": false
+      },
+      {
+        "id": "2026.10.6",
+        "label": "10.6更新",
+        "latest": false
+      },
+      {
+        "id": "2026.10.8",
+        "label": "10.8更新",
+        "latest": false
+      },
+      {
+        "id": "2026.11.4",
+        "label": "11.4更新",
+        "latest": false
+      },
+      {
+        "id": "2026.11.11",
+        "label": "11.11更新",
+        "latest": false
+      },
+      {
+        "id": "2026.11.12",
+        "label": "11.12更新",
+        "latest": true
+      }
+    ],
+    "entryAliases": {
+      "nai5_community_pack_mengshen_korean_0889": "nai5_community_pack_mengshen_korean_0888",
+      "nai5_community_pack_mengshen_korean_0890": "nai5_community_pack_mengshen_korean_0888",
+      "nai5_community_pack_mengshen_korean_0891": "nai5_community_pack_mengshen_korean_0888",
+      "nai5_community_pack_mengshen_korean_0892": "nai5_community_pack_mengshen_korean_0888",
+      "nai5_community_pack_mengshen_korean_0893": "nai5_community_pack_mengshen_korean_0888"
+    }
+  },
+  {
+    "id": "raven_composition",
+    "type": "composition",
+    "title": "渡鸦的构图鉴",
+    "version": "2026.11.26",
+    "author": "渡鸦",
+    "entryCount": 7887,
+    "imagedCount": 7887,
+    "hasOriginal": false,
+    "originalSections": [
+      "秋季课堂",
+      "角色图鉴"
+    ],
+    "source": "渡鸦 · 服饰、姿势、表情与背景标签图鉴",
+    "contributors": [
+      {
+        "name": "渡鸦",
+        "role": "标签整理 / 中文说明 / 例图提供",
+        "url": "https://space.bilibili.com/74350027"
+      }
+    ],
+    "links": [],
+    "cover": "raven_composition-1198.jpg",
+    "coverRev": "81cef5b5dc527512",
+    "coverFraming": {
+      "x": 50,
+      "y": 16,
+      "scale": 1.5
+    },
+    "newFilterLabel": "本次11.26更新",
+    "updateFilters": [
+      {
+        "id": "2026.11.26",
+        "label": "11.26更新",
+        "latest": true
+      },
+      {
+        "id": "2026.10.26",
+        "label": "10.26更新",
+        "latest": false
+      },
+      {
+        "id": "2026.10.16",
+        "label": "10.16更新",
+        "latest": false
+      },
+      {
+        "id": "2026.10.8",
+        "label": "10.8更新",
+        "latest": false
+      },
+      {
+        "id": "2026.10.2",
+        "label": "10.2更新",
+        "latest": false,
+        "samples": [
+          "raven_composition-4160.jpg",
+          "raven_composition-4163.jpg",
+          "raven_composition-4166.jpg",
+          "raven_composition-4168.jpg"
+        ]
+      },
+      {
+        "id": "2026.9.27",
+        "label": "9.27更新",
+        "latest": false
+      },
+      {
+        "id": "2026.9.19",
+        "label": "9.19更新",
+        "latest": false
+      },
+      {
+        "id": "2026.9.14",
+        "label": "9.14更新",
+        "latest": false
+      },
+      {
+        "id": "2026.9.12",
+        "label": "9.12更新",
+        "latest": false
+      }
+    ]
+  },
+  {
+    "id": "kisegaeningyou",
+    "type": "composition",
+    "title": "更衣人偶",
+    "version": "2026.9.6",
+    "author": "Sol",
+    "entryCount": 430,
+    "imagedCount": 430,
+    "hasOriginal": true,
+    "exampleModel": "NoobXL V",
+    "source": "Sol · 更衣人偶 · 服装提示词与例图",
+    "contributors": [
+      {
+        "name": "Sol",
+        "role": "服装提示词整理 / 例图提供"
+      }
+    ],
+    "links": [
+      {
+        "label": "作者网站 · 更衣人偶",
+        "url": "https://hayde0096.github.io/kisegae/"
+      },
+      {
+        "label": "图文素材仓库",
+        "url": "https://github.com/hayde0096/Kisegaeningyou"
+      },
+      {
+        "label": "网站程序仓库",
+        "url": "https://github.com/hayde0096/kisegae"
+      }
+    ],
+    "cover": "cover-winter.png",
+    "coverRev": "1567bee7f2331e9c",
+    "newFilterLabel": "本次9.6更新",
+    "updateFilters": [
+      {
+        "id": "2026.9.6",
+        "label": "9.6更新",
+        "latest": true
+      }
+    ],
+    "coverFraming": {
+      "x": 50,
+      "y": 12,
+      "scale": 1.6
+    }
+  },
+  {
+    "id": "qianteng",
+    "type": "composition",
+    "title": "叫我千藤就好了の衣柜",
+    "selectorTitle": "千藤の衣柜",
+    "version": "2026.3.1",
+    "author": "叫我千藤就好了",
+    "entryCount": 125,
+    "imagedCount": 124,
+    "hasOriginal": false,
+    "aliases": [
+      "codex_70c0e66f"
+    ],
+    "source": "千藤 · 叫我千藤就好了の衣柜",
+    "contributors": [
+      {
+        "name": "叫我千藤就好了",
+        "role": "法典原作者"
+      }
+    ],
+    "cover": "qianteng-0001.jpg",
+    "coverRev": "b083ef9b7cc9f078"
+  },
+  {
+    "id": "composition_style",
+    "type": "composition",
+    "title": "构图风格",
+    "version": "2025.10.19",
+    "author": "凉夏之夜",
+    "entryCount": 64,
+    "imagedCount": 64,
+    "hasOriginal": false,
+    "source": "构图风格.xlsx",
+    "contributors": [
+      {
+        "name": "凉夏之夜",
+        "role": "词条整理 / 配图数据提供"
+      }
+    ],
+    "selectorTitle": "构图风格(场景串)",
+    "cover": "composition_style_0001.jpg",
+    "coverRev": "e1d9fa43f9a6d14e"
+  },
+  {
+    "id": "suozhang_r18",
+    "type": "codex",
+    "title": "所长N4.5色色NovelAI个人法典（合并版）",
+    "selectorTitle": "所长NAI v4.5色色法典",
+    "version": "2026.10.27",
+    "newFilterLabel": "本次10.27更新",
+    "author": "戒红所",
+    "entryCount": 11990,
+    "imagedCount": 11945,
+    "hasOriginal": true,
+    "nsfw": true,
+    "source": "戒红所 · 所长色色法典（上 + 下 合并）",
+    "contributors": [
+      {
+        "name": "戒红所",
+        "role": "法典原作者"
+      },
+      {
+        "name": "拉风de茶",
+        "role": "配图数据提供"
+      }
+    ],
+    "cover": "codex_6e699406-5462.jpg",
+    "coverRev": "784c2c33b18f5da0",
+    "updateFilters": [
+      {
+        "id": "2026.7.15",
+        "label": "7.15更新"
+      },
+      {
+        "id": "2026.8.14",
+        "label": "8.14更新"
+      },
+      {
+        "id": "2026.8.31",
+        "label": "8.31更新"
+      },
+      {
+        "id": "2026.9.13",
+        "label": "9.13更新"
+      },
+      {
+        "id": "2026.9.25",
+        "label": "9.25更新",
+        "pickerHidden": true
+      },
+      {
+        "id": "2026.10.13",
+        "label": "10.13更新"
+      },
+      {
+        "id": "2026.10.27",
+        "label": "10.27更新",
+        "latest": true
+      }
+    ]
+  },
+  {
+    "id": "suozhang_nai5_r18",
+    "cover": "suozhang_nai5_r18-0144.jpg",
+    "coverRev": "d5aa4303188522fc",
+    "coverFraming": {
+      "x": 50,
+      "y": 0,
+      "scale": 1
+    },
+    "type": "codex",
+    "title": "所长N5色色NovelAI个人法典（合并版）",
+    "selectorTitle": "所长NAI v5色色法典",
+    "version": "2026.10.27",
+    "author": "戒红所",
+    "entryCount": 1147,
+    "imagedCount": 1100,
+    "hasOriginal": true,
+    "source": "戒红所 · N5所长法典",
+    "contributors": [
+      {
+        "name": "戒红所",
+        "role": "法典原作者"
+      }
+    ],
+    "newFilterLabel": "本次10.27更新",
+    "updateFilters": [
+      {
+        "id": "2026.9.13",
+        "label": "9.13更新"
+      },
+      {
+        "id": "2026.9.25",
+        "label": "9.25更新",
+        "pickerHidden": true
+      },
+      {
+        "id": "2026.10.13",
+        "label": "10.13更新"
+      },
+      {
+        "id": "2026.10.27",
+        "label": "10.27更新",
+        "latest": true
+      }
+    ],
+    "nsfw": true
+  },
+  {
+    "id": "jiegou_yuandian",
+    "type": "codex",
+    "title": "解构原典",
+    "version": "2025.7.18",
+    "author": "解构原典编撰组",
+    "entryCount": 274,
+    "imagedCount": 265,
+    "hasOriginal": true,
+    "source": "解构原典编撰组 · 解构原典",
+    "contributors": [
+      {
+        "name": "解构原典编撰组",
+        "role": "法典原作者 / 编撰"
+      }
+    ],
+    "cover": "jiegou_yuandian-0002.jpg",
+    "coverRev": "2d9f354e5eb59bfd"
+  },
+  {
+    "id": "mengshen_r18",
+    "type": "codex",
+    "title": "梦神·涩涩法典",
+    "selectorTitle": "梦神·涩涩法典",
+    "version": "外部源",
+    "author": "梦神",
+    "entryCount": 351,
+    "imagedCount": 351,
+    "hasOriginal": false,
+    "nsfw": true,
+    "dataUrl": "https://prompt-vault-gallery.pages.dev/data/prompt-vault.json",
+    "fallbackDataUrl": "data/mengshen_r18.json",
+    "fallbackVersion": "本地快照",
+    "assetBaseUrl": "https://prompt-vault-gallery.pages.dev",
+    "assetPathMode": "relative",
+    "aliases": [
+      "codex_3f60585d"
+    ],
+    "source": "梦神 · 涩涩法典",
+    "contributors": [
+      {
+        "name": "梦神",
+        "role": "法典原作者 / 数据维护"
+      },
+      {
+        "name": "无间的种",
+        "role": "配图数据提供"
+      }
+    ],
+    "links": [
+      {
+        "label": "数据来源 · prompt-vault-gallery",
+        "url": "https://prompt-vault-gallery.pages.dev"
+      }
+    ],
+    "cover": "images/20260613_5lo5k1.png"
+  },
+  {
+    "id": "nai45_community_pack",
+    "aliases": [
+      "mengshen_pack",
+      "community_ai_misc"
+    ],
+    "type": "pack",
+    "title": "NovelAI v4.5社区精选图包",
+    "selectorTitle": "V4.5 社区图包",
+    "version": "2026.11.11",
+    "author": "梦神整理 / 社区贡献者",
+    "entryCount": 6862,
+    "imagedCount": 6862,
+    "hasOriginal": true,
+    "source": "梦神整理 · 社区收集原图包 / 社区贡献者 · AI杂图（带元数据）-N4.5最终版",
+    "contributors": [
+      {
+        "name": "梦神",
+        "role": "图包整理 / 数据来源"
+      },
+      {
+        "name": "社区贡献者",
+        "role": "原图与参数收集 / 人工分类"
+      }
+    ],
+    "links": [],
+    "cover": "mengshen_pack-0259.jpg",
+    "coverRev": "a4fbaa67f4bb359c",
+    "coverCodexId": "mengshen_pack",
+    "newFilterLabel": "本次11.11更新",
+    "updateFilters": [
+      {
+        "id": "2026.9.1",
+        "label": "9.1更新",
+        "latest": false
+      },
+      {
+        "id": "2026.11.11",
+        "label": "11.11更新",
+        "latest": true
+      }
+    ]
+  },
+  {
+    "id": "enter_codex",
+    "type": "pack",
+    "title": "站长的小仓库",
+    "version": "2026.11.12",
+    "author": "Enter",
+    "entryCount": 493,
+    "imagedCount": 493,
+    "hasOriginal": true,
+    "cover": "enter_codex-0315.jpg",
+    "coverRev": "70e29bc523a36ce0",
+    "source": "Enter · 个人收藏与社区收集",
+    "contributors": [
+      {
+        "name": "Enter",
+        "role": "个人收藏 / 图包整理"
+      },
+      {
+        "name": "社区贡献者",
+        "role": "原图与参数收集"
+      }
+    ],
+    "links": [],
+    "newFilterLabel": "本次11.12更新",
+    "updateFilters": [
+      {
+        "id": "2026.10.9",
+        "label": "10.9更新",
+        "latest": false
+      },
+      {
+        "id": "2026.9.21",
+        "label": "9.21更新",
+        "latest": false
+      },
+      {
+        "id": "2026.10.24",
+        "label": "10.24更新",
+        "latest": false
+      },
+      {
+        "id": "2026.10.31",
+        "label": "10.31更新",
+        "latest": false
+      },
+      {
+        "id": "2026.11.3",
+        "label": "11.3更新",
+        "latest": false
+      },
+      {
+        "id": "2026.11.12",
+        "label": "11.12更新",
+        "latest": true
+      }
+    ]
+  }
+]

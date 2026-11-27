@@ -244,11 +244,19 @@ Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
+## 🙏 Acknowledgments & Community Reference Data
 
 - [NovelAI](https://novelai.net/) - Powerful image generation API
-- [Model Context Protocol](https://modelcontextprotocol.io/) - MCP specification
-- [Anthropic](https://www.anthropic.com/) - MCP SDK and Claude
+- [Model Context Protocol](https://modelcontextprotocol.io/) & [Anthropic](https://www.anthropic.com/) - MCP specification and SDK
+- **[Luxvanyu/prompt-craft](https://github.com/Luxvanyu/prompt-craft)** - Core methodology for the Seven-Dimension Decision workflow, 35-Tag golden budget (calibrated on 10,958 real NovelAI prompts), prior decoupling, anatomical action locking, optical probing (`probe_image`), 13-gate linting (`lint_prompt`), and delta verification (`verify_image`), tailored specifically for NovelAI V5 / V4.5.
+- **[NovelAI Community Codex (novelai.quicktagcloud.com)](https://novelai.quicktagcloud.com/)** - Raw JSON datasets from the public endpoint (`https://novelai.quicktagcloud.com/data/`) are archived offline in [`data/raw-codexes/`](./data/raw-codexes) and indexed in [`data/nai-lexicon.json.gz`](./data/nai-lexicon.json.gz) (**28,615 entries** across 10 community codexes for 100% local zero-network search via `search_nai_lexicon`). Special thanks to the community authors and contributors:
+  - **Raven's Composition Codex (渡鸦的构图鉴, 7,887 entries)** by **渡鸦 (Raven)**
+  - **Composition Styles (构图风格, 64 weighted scene strings)** by **凉夏之夜**
+  - **Deconstruction Codex (解构原典, 274 entries with negative prompts)** by **解构原典编撰组**
+  - **Kisegaeningyou (更衣人偶, 430 outfit combinations)** by **Sol**
+  - **Qianteng's Wardrobe (叫我千藤就好了の衣柜, 125 entries)** by **叫我千藤就好了**
+  - **Suozhang's NAI V5 & V4.5 Codexes (所长个人法典, 19,484 entries)** by **戒红所** & **拉风de茶**
+  - **Mengshen's Codex (梦神·涩涩法典, 351 entries)** by **梦神** & **无间的种**
 
 ## 🔗 Links
 

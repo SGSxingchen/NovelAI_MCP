@@ -18,8 +18,9 @@ import { NovelAIClient } from '../dist/novelai-client.js';
 
 const toolNames = [
   'augment_image', 'encode_vibe', 'generate_image', 'get_subscription', 'get_v5_stylist_guide',
-  'img2img', 'inpaint_image', 'list_archived_images', 'save_library_entry', 'search_artist_library',
-  'search_prompt_library', 'suggest_tags', 'upscale_image',
+  'img2img', 'inpaint_image', 'lint_prompt', 'list_archived_images', 'probe_image', 'save_library_entry',
+  'search_artist_library', 'search_nai_lexicon', 'search_prompt_library', 'suggest_tags', 'upscale_image',
+  'verify_image',
 ];
 const progressiveToolNames = ['nai_discover', 'nai_describe', 'nai_execute'];
 const clientInfo = { name: 'novelai-mcp-test', version: '1.0.0' };
@@ -151,8 +152,8 @@ test('Streamable HTTP 默认渐进式披露，完成 Gemini 握手、多格式�
 
   const health = await (await get(new URL('/health', serverUrl))).json();
   assert.deepEqual(health, {
-    status: 'ok', service: 'novelai-mcp-server', mode: 'streamable-http', version: '2.0.0', tools: 13,
-    disclosureMode: 'progressive', progressiveTools: 3, totalActions: 13,
+    status: 'ok', service: 'novelai-mcp-server', mode: 'streamable-http', version: '2.0.0', tools: 17,
+    disclosureMode: 'progressive', progressiveTools: 3, totalActions: 17,
   });
   const requestBody = { id: 1, method: 'initialize', params: { protocolVersion, capabilities: {}, clientInfo } };
   const invalidOrigin = await postRpc(mcp, requestBody, { Origin: 'https://untrusted.example.test' });

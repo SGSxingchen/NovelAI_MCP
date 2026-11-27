@@ -6,6 +6,8 @@ WORKDIR /app
 # 复制 package 文件
 COPY package.json package-lock.json tsconfig.json ./
 COPY src ./src
+COPY data ./data
+COPY web ./web
 
 # 安装锁定的依赖，运行 prepare 编译后移除开发依赖
 RUN npm ci && npm prune --omit=dev --ignore-scripts

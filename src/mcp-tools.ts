@@ -36,6 +36,10 @@ import {
   V5_STYLIST_RESOURCE_URI, V5_STYLIST_TOPICS,
 } from './v5-stylist.js';
 import type { V5StyleBlueprintId, V5StylistTopic } from './v5-stylist.js';
+import { LEXICON_MODES, NAI_CODEX_IDS, searchNaiLexicon } from './nai-lexicon.js';
+import type { SearchNaiLexiconOptions } from './nai-lexicon.js';
+import { lintNaiPrompt, probeImage, PROMPT_LINT_INTENTS, verifyImage } from './prompt-craft.js';
+import type { LintNaiPromptInput, ProbePatchInput } from './prompt-craft.js';
 import { VibeCache, vibeCacheKey } from './vibe-cache.js';
 
 export const SERVER_NAME = 'novelai-mcp-server';
@@ -224,7 +228,45 @@ const TOOLS = [
     include_image: { ...flag('指定 image_id 时是否一并返回图片画面内容供模型查看（默认开启；仅需纯文本元数据时可设为 false）。'), default: true },
     limit: { ...bounded('integer', '返回最近几张图，默认 10，最多 50。', 1, 50), default: 10 },
   }, [], true, false),
-  tool('get_v5_stylist_guide', '免费只读查询（0 Anlas）：获取内置 novelai-v5-stylist 风格工程技能指南，包含 V5 Full/Curated 选型、去默认塑料滤镜、物理媒介锚点、三阶画师权重链、5 套参数化风格蓝图、自然语言构图排版、反污染负权重与 Guidance 标定规则。', {
+  tool('probe_image', '免费只读查询（0 Anlas）：反推参考图或诊断出图前的光学与色彩探针。实测 ITU-R BT.709 明度三档（mean/med/dark/mid/bright/nw/p1/p99）、亮暗部饱和度方向（sat/lit/shadow）、边缘硬度与平坦度（strong/soft/flat）、6×6 亮度矩阵、16×11 主色 HEX、内嵌 NAI 参数及反推写作建议。', {
+    source_image: { ...textField(`待测参考图或出图。${IMAGE_INPUT}`), minLength: 1 },
+    patches: {
+      type: 'array', maxItems: 16, description: '可选：按 0~1 归一化坐标测量局部区域（如服装、墙面、主光区）的 RGB、饱和度、明度与 HEX。',
+      items: {
+        type: 'object',
+        properties: {
+          name: { ...textField('局部区域名称。'), minLength: 1 },
+          x0: unit('左边界比例（0~1）。'),
+          y0: unit('上边界比例（0~1）。'),
+          x1: unit('右边界比例（0~1）。'),
+          y1: unit('下边界比例（0~1）。'),
+        },
+        required: ['name', 'x0', 'y0', 'x1', 'y1'],
+      },
+    },
+    include_forensic_sop: { ...flag('是否一并返回二十问盲读取证清单（Forensic 20 Questions），辅助看图防脑补。'), default: false },
+  }, ['source_image'], true, false),
+  tool('verify_image', '免费只读查询（0 Anlas）：对比参考图与 NovelAI 出图的光学/色彩差值与 6×6 明度差矩阵，按 [严重]/[明显]/[轻微] 输出单句修正处方（指导只改 base_prompt 中哪一句，免整篇重写）。', {
+    reference_image: { ...textField(`目标参考图。${IMAGE_INPUT}`), minLength: 1 },
+    output_image: { ...textField(`当前 NovelAI 出图。${IMAGE_INPUT}`), minLength: 1 },
+  }, ['reference_image', 'output_image'], true, false),
+  tool('lint_prompt', '免费只读查询（0 Anlas）：出图前对 NovelAI 提示词执行纯 NAI 口径十三道关自检（权重壳闭合、35 Tag 预算与加权项 ≤30%、参考图明度/饱和对齐、机位吞噬与 B3/B4 陷阱、预设冲撞、防烧白、角色坐标防居中/防叠头、先验解绑与防正向 no halo 欲盖弥彰、单手武器副手解剖闭环、多角色 3-Tier 分槽、美学质感提示灯）。', {
+    base_prompt: { ...textField('全局场景、风格与自然语言构图提示词。'), minLength: 1 },
+    base_negative_prompt: textField('全局负面提示词（UC）。'),
+    characters: generationFields.characters,
+    model: generationFields.model,
+    width: { ...dimension('画幅宽度（像素），默认 832。'), default: DEFAULT_GENERATION_SIZE.width },
+    height: { ...dimension('画幅高度（像素），默认 1216。'), default: DEFAULT_GENERATION_SIZE.height },
+    scale: generationFields.scale,
+    quality_preset: generationFields.quality_preset,
+    uc_preset: generationFields.uc_preset,
+    reference_image: textField(`可选：参考图。传入后自动激活关 2 实测数值对齐与关 4 覆盖检查。${IMAGE_INPUT}`),
+    intents: {
+      type: 'array', maxItems: 8, description: '可选：声明有意的画面处理以放行对应门禁（如 blown 过曝、leak 漏光、tilt 倾斜、soft 失焦、flat_poster 平面海报、monochrome 黑白、halo 保留光环）。',
+      items: choice('创作意图标签。', PROMPT_LINT_INTENTS),
+    },
+  }, ['base_prompt'], true, false),
+  tool('get_v5_stylist_guide', '免费只读查询（0 Anlas）：获取内置 novelai-v5-stylist 风格与七维提示词工程指南，包含 V5 Full/Curated 选型、一图一主张与七维决策、35 Tag 黄金预算与 V5 3-Tier 属性分槽、三阶画师权重链、5 套风格蓝图、P1-P8 进阶防崩工程、参考图反推与差值微调 SOP。', {
     topic: { ...choice('按需获取的章节，默认 full 返回完整指南。', V5_STYLIST_TOPICS), default: 'full' },
     blueprint: choice('可选：直接提取某套风格蓝图及对应 MCP 推荐参数。', V5_STYLE_BLUEPRINT_IDS),
   }, [], true, false),
@@ -241,6 +283,14 @@ const TOOLS = [
     kind: choice('按条目用途筛选。', PROMPT_KINDS),
     category: textField('按分类筛选。'),
     limit: { ...bounded('integer', '最多返回多少项。', 1, 100), default: 20 },
+  }, [], true, false),
+  tool('search_nai_lexicon', '免费只读查询（0 Anlas）：检索本地离线归档的 10 部 NovelAI 社区法典（共 28,615 条，含渡鸦的构图鉴、构图风格 64 条权重场景串、解构原典 274 条带负向范例、更衣人偶、千藤衣柜、所长 NAI V5/V4.5 法典等）。支持中英双向查 Tag、查分类树、查成品权重场景串与负向搭配。', {
+    query: textField('中英双向搜索关键词（如 "逆光"、"焦散"、"水手服"、"dutch_angle"、"caustics"）。'),
+    mode: { ...choice('检索模式：fuzzy（中英模糊优先级检索）、exact（精确匹配）、category（按分类检索或浏览分类树）、scenes（提取 64 条带权重成品场景串）、negatives（检索带负向 UC 范例）、stats（查看 10 部法典统计与分类树）。', LEXICON_MODES), default: 'fuzzy' },
+    category: textField('可选：按分类路径过滤（如 "视角构图"、"光影"、"服饰"）。'),
+    codex: choice('可选：指定单部法典过滤。', NAI_CODEX_IDS),
+    include_nsfw: { ...flag('是否包含 NSFW / R18 法典条目，默认开启；设为 false 仅检索全年龄词条。'), default: true },
+    limit: { ...bounded('integer', '最多返回条数，默认 20，最多 100。', 1, 100), default: 20 },
   }, [], true, false),
   tool('save_library_entry', '新增画师、混搭配方或提示词条目。', {
     target: choice('目标词库。', ['artist', 'prompt']),
@@ -266,21 +316,25 @@ const DISCOVERY_MODULES = [
     ],
   },
   {
-    module: 'assist', summary: '标签联想、订阅额度与历史归档看图', actions: [
+    module: 'assist', summary: '标签联想、订阅额度、历史归档看图与光学测图/十三道关自检', actions: [
       { name: 'suggest_tags', summary: '联想提示词标签' },
       { name: 'get_subscription', summary: '查订阅与额度' },
       { name: 'list_archived_images', summary: '查历史归档或查看单张参考图画面' },
+      { name: 'probe_image', summary: '实测参考图/出图的明度三档、饱和方向与 16×11 主色 HEX' },
+      { name: 'verify_image', summary: '对比参考图与出图差值并生成 NAI 单句微调处方' },
+      { name: 'lint_prompt', summary: '出图前过纯 NAI 十三道关提示词自检' },
     ],
   },
   {
-    module: 'guides', summary: 'V5 风格工程、计费与模型指南', actions: [
-      { name: 'get_v5_stylist_guide', summary: '读取 V5 风格工程指南' },
+    module: 'guides', summary: 'V5 风格工程、七维决策、计费与模型指南', actions: [
+      { name: 'get_v5_stylist_guide', summary: '读取 V5 风格与七维提示词工程指南' },
     ],
   },
   {
-    module: 'library', summary: '画师与提示词库', actions: [
+    module: 'library', summary: '画师、提示词库与 28,615 条离线 NAI 社区法典', actions: [
       { name: 'search_artist_library', summary: '查询画师标签与混搭配方' },
       { name: 'search_prompt_library', summary: '查询模板、积木和负面预设' },
+      { name: 'search_nai_lexicon', summary: '检索 10 部离线 NAI 社区法典中英标签与 64 条权重场景串' },
       { name: 'save_library_entry', summary: '新增画师或提示词条目' },
     ],
   },
@@ -983,6 +1037,32 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
         }
         case 'list_archived_images':
           return completed(name, await archive(args));
+        case 'probe_image': {
+          const input = args as { source_image: string; patches?: ProbePatchInput[]; include_forensic_sop?: boolean };
+          const buffer = await resolveImageInput(input.source_image, options);
+          const result = await probeImage(buffer, {
+            patches: input.patches,
+            include_forensic_sop: input.include_forensic_sop,
+          });
+          return completed(name, { content: [asText(result.summary_text), asText(JSON.stringify(result))] });
+        }
+        case 'verify_image': {
+          const input = args as { reference_image: string; output_image: string };
+          const [refBuffer, outBuffer] = await Promise.all([
+            resolveImageInput(input.reference_image, options),
+            resolveImageInput(input.output_image, options),
+          ]);
+          const result = await verifyImage(refBuffer, outBuffer);
+          return completed(name, { content: [asText(result.summary_text), asText(JSON.stringify(result))] });
+        }
+        case 'lint_prompt': {
+          const input = args as unknown as LintNaiPromptInput & { reference_image?: string };
+          const refProfile = input.reference_image
+            ? await probeImage(await resolveImageInput(input.reference_image, options))
+            : undefined;
+          const result = lintNaiPrompt(input, refProfile);
+          return completed(name, { content: [asText(result.summary_text), asText(JSON.stringify(result))] });
+        }
         case 'get_v5_stylist_guide': {
           const input = args as { topic?: V5StylistTopic; blueprint?: V5StyleBlueprintId };
           return completed(name, { content: [asText(renderV5StylistGuide(input))] });
@@ -1002,6 +1082,10 @@ export function createNovelAIMcpServer(options: NovelAIMcpServerOptions): Server
           const filters = args as PromptSearch;
           const items = await libraryStore.searchPrompts({ ...filters, limit: filters.limit ?? 20 });
           return completed(name, asJson({ items }));
+        }
+        case 'search_nai_lexicon': {
+          const result = searchNaiLexicon(args as SearchNaiLexiconOptions);
+          return completed(name, asJson(result));
         }
         case 'save_library_entry': {
           const item = args.target === 'artist'
